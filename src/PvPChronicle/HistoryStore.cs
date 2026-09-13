@@ -21,7 +21,7 @@ namespace PvPChronicle
                 ["playerId"] = entry.PlayerId, ["playerName"] = entry.PlayerName, ["targetId"] = entry.TargetId, ["targetName"] = entry.TargetName,
                 ["killerId"] = entry.KillerId, ["killerName"] = entry.KillerName, ["lastActionId"] = entry.ActionId,
                 ["lastActionName"] = entry.ActionName, ["lastActionTimestamp"] = entry.ActionTimestamp?.ToString("o"),
-                ["zone"] = entry.Zone, ["assistWindowSeconds"] = entry.AssistWindowSeconds
+                ["zone"] = entry.Zone, ["assistWindowSeconds"] = entry.AssistWindowSeconds, ["killerWasAlly"] = entry.KillerWasAlly
             };
             File.AppendAllText(Path.Combine(directory, entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd") + ".jsonl"), json.Serialize(record) + Environment.NewLine, new UTF8Encoding(false));
         }
@@ -50,7 +50,7 @@ namespace PvPChronicle
                                 var kind = text("kind"); if (kind != "Kill" && kind != "EstimatedAssist") continue;
                                 day.Enqueue(new HistoryEntry { Id = text("id"), Timestamp = time, Kind = kind, TargetName = text("targetName"), PlayerName = text("playerName"),
                                     PlayerId = Convert.ToUInt32(d["playerId"], CultureInfo.InvariantCulture), TargetId = Convert.ToUInt32(d["targetId"], CultureInfo.InvariantCulture),
-                                    KillerId = Convert.ToUInt32(d["killerId"], CultureInfo.InvariantCulture), KillerName = text("killerName"), ActionId = text("lastActionId"),
+                                    KillerId = Convert.ToUInt32(d["killerId"], CultureInfo.InvariantCulture), KillerName = text("killerName"), ActionId = text("lastActionId"), KillerWasAlly = text("killerWasAlly") == "True",
                                     ActionName = text("lastActionName"), ActionTimestamp = DateTimeOffset.TryParse(text("lastActionTimestamp"), out actionTime) ? (DateTimeOffset?)actionTime : null, Zone = text("zone") });
                                 while (day.Count > count) day.Dequeue();
                             }

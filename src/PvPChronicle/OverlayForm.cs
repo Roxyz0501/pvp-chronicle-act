@@ -84,7 +84,7 @@ namespace PvPChronicle
                 g.DrawLine(gold, 12, 34, Width - 12, 34);
                 var visible = entries.Take(settings.MaximumLines).ToList();
                 if (settings.Preview && visible.Count == 0)
-                    visible.Add(new HistoryEntry { Timestamp = DateTimeOffset.Now, Kind = "EstimatedAssist", TargetName = Localization.Get(settings.Language, "PreviewTarget"), ActionName = Localization.Get(settings.Language, "PreviewAction") });
+                    visible.Add(new HistoryEntry { Timestamp = DateTimeOffset.Now, Kind = settings.RecordAssists ? "EstimatedAssist" : "Kill", TargetName = Localization.Get(settings.Language, "PreviewTarget"), ActionName = Localization.Get(settings.Language, "PreviewAction") });
                 int y = 42, rowHeight = text.Height + small.Height + 12;
                 foreach (var entry in visible.Skip(scroll))
                 {

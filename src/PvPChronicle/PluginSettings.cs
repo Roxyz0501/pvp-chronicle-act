@@ -16,6 +16,7 @@ namespace PvPChronicle
         public int Width { get; set; } = 680;
         public int Height { get; set; } = 420;
         public int AssistWindowSeconds { get; set; } = 10;
+        public bool RecordAssists { get; set; } = true;
         public int MaximumLines { get; set; } = 6;
         public int OpacityPercent { get; set; } = 96;
         public int FontSize { get; set; } = 16;

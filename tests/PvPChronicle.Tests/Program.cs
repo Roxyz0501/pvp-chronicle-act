@@ -21,7 +21,7 @@ internal static class Program
         try
         {
             artifacts = Path.Combine(Environment.CurrentDirectory, "artifacts", "tests"); Directory.CreateDirectory(artifacts);
-            Tracking(); Persistence(); Languages(); UpdateSafety(); WindowStability(); RenderSettings();
+            Tracking(); AssistRules(); Persistence(); Languages(); UpdateSafety(); WindowStability(); RenderSettings();
             if (Environment.GetEnvironmentVariable("PVPCHRONICLE_UPDATE_INTEGRATION") == "1")
             {
                 using (var service = new UpdateService())
@@ -46,7 +46,7 @@ internal static class Program
     private static string Death(int time, string target = "10000002", string source = "10000001") => "25|" + Stamp(time) + "|" + target + "|Opponent|" + source + "|Killer|hash";
     private static CombatLogTracker Tracker(List<HistoryEntry> entries)
     {
-        var t = new CombatLogTracker(); t.ProcessLine("02|" + Stamp(0) + "|10000001|Me|"); t.Recorded += (s, e) => entries.Add(e); return t;
+        var t = new CombatLogTracker(); t.ProcessLine("02|" + Stamp(0) + "|10000001|Me|"); t.AllyCheck = (player, killer) => player == 0x10000001 && killer == 0x10000003; t.Recorded += (s, e) => entries.Add(e); return t;
     }
     private static void Tracking()
     {
@@ -71,15 +71,48 @@ internal static class Program
         t.AssistWindowSeconds = 60; t.ProcessLine(Hit(20)); t.ProcessLine(Death(80, source: "10000003")); Check(fresh.Count == 1, "inclusive configured boundary");
         t.ProcessLine(Death(81, target: "10000001")); Check(fresh.Count == 1, "own death excluded");
     }
+    private static void AssistRules()
+    {
+        var events = new List<HistoryEntry>(); var tracker = Tracker(events);
+        tracker.RecordAssists = false; tracker.ProcessLine(Hit(1)); tracker.ProcessLine(Death(2, source: "10000003"));
+        Check(events.Count == 0, "assists off");
+        tracker.ProcessLine(Hit(5)); tracker.ProcessLine(Death(6)); Check(events.Count == 1 && events[0].Kind == "Kill", "kills still recorded");
+        tracker.RecordAssists = true; tracker.ProcessLine(Hit(10)); tracker.ProcessLine(Death(11, source: "10000004")); Check(events.Count == 1, "third faction killer excluded");
+        tracker.ProcessLine(Hit(15)); tracker.ProcessLine(Death(25, source: "10000003")); Check(events.Count == 2 && events[1].KillerWasAlly, "ally kill at time boundary");
+        tracker.AllyCheck = null; tracker.ProcessLine(Hit(30)); tracker.ProcessLine(Death(31, source: "10000003")); Check(events.Count == 2, "unknown faction excluded");
+        tracker.AllyCheck = (p, k) => { throw new IOException("unavailable"); }; tracker.ProcessLine(Hit(35)); tracker.ProcessLine(Death(36, source: "10000003")); Check(events.Count == 2, "ally lookup failure contained");
+        Check(!events[1].ShouldDisplay(false) && events[1].ShouldDisplay(true) && events[0].ShouldDisplay(false), "display toggle preserves kills");
+        Check(!new HistoryEntry { Kind = "EstimatedAssist" }.ShouldDisplay(true), "legacy unverified assists hidden");
+        var repo = new FakeRepository(); var resolver = new AllyResolver(repo);
+        Check(resolver.IsAlly(0x10000001, 0x10000003), "party member accepted");
+        repo.Members[0].PartyType = 2; Check(resolver.IsAlly(0x10000001, 0x10000003), "alliance member accepted");
+        repo.Members[0].PartyType = 0; Check(!resolver.IsAlly(0x10000001, 0x10000003), "nonmember rejected");
+        repo.Members[0].PartyType = 3; Check(!resolver.IsAlly(0x10000001, 0x10000003), "unknown membership rejected");
+        repo.Members[0].PartyType = 2; Check(!resolver.IsAlly(0x10000002, 0x10000003), "different current player rejected");
+        Check(!resolver.IsAlly(0x10000001, 0x10000004), "missing combatant rejected");
+        repo.Fail = true; Check(!resolver.IsAlly(0x10000001, 0x10000003), "repository failure rejected");
+        Check(!new AllyResolver(new object()).IsAlly(0x10000001, 0x10000003), "missing API rejected");
+        foreach (var lang in new[] { "en", "ja", "zh-CN", "ko" }) Check(Localization.Get(lang, "RecordAssists") != "RecordAssists", "toggle localized " + lang);
+    }
+    public sealed class FakeCombatant { public uint ID { get; set; } = 0x10000003; public int PartyType { get; set; } = 1; }
+    public sealed class FakeRepository
+    {
+        public bool Fail;
+        public FakeCombatant[] Members = { new FakeCombatant() };
+        public uint GetCurrentPlayerID() => 0x10000001;
+        public FakeCombatant[] GetCombatantList() { if (Fail) throw new IOException("unavailable"); return Members; }
+    }
     private static void Persistence()
     {
         var folder = Path.Combine(artifacts, "history " + Guid.NewGuid().ToString("N")); var store = new HistoryStore(folder);
         for (int i = 0; i < 40; i++) store.Append(new HistoryEntry { Id = i.ToString(), Timestamp = DateTimeOffset.Parse(Stamp(i)), Kind = "Kill", PlayerId = 0x10000001, TargetId = 0x10000002, TargetName = "Test \" name\n日本語", ActionName = "技", ActionTimestamp = DateTimeOffset.Parse(Stamp(i)) });
         File.AppendAllText(Directory.GetFiles(folder).Single(), "broken json\n");
         var recent = store.LoadRecent(30); Check(recent.Count == 30 && recent[0].Id == "39" && recent[29].Id == "10", "latest N restored"); Check(recent[0].TargetName == "Test \" name\n日本語", "UTF8 JSON roundtrip");
-        var config = Path.Combine(folder, "config.xml"); var s = new PluginSettings { MaximumLines = 30, AssistWindowSeconds = 60, Language = "ko" }; s.Save(config); s.Save(config);
-        var loaded = PluginSettings.Load(config); Check(loaded.MaximumLines == 30 && loaded.AssistWindowSeconds == 60 && loaded.Language == "ko", "config roundtrip");
-        File.WriteAllText(config, "<PluginSettings><MaximumLines>3</MaximumLines></PluginSettings>"); loaded = PluginSettings.Load(config); Check(loaded.MaximumLines == 3 && loaded.AssistWindowSeconds == 10, "old config defaults");
+        var config = Path.Combine(folder, "config.xml"); var s = new PluginSettings { MaximumLines = 30, AssistWindowSeconds = 60, Language = "ko", RecordAssists = false }; s.Save(config); s.Save(config);
+        var loaded = PluginSettings.Load(config); Check(loaded.MaximumLines == 30 && loaded.AssistWindowSeconds == 60 && loaded.Language == "ko" && !loaded.RecordAssists, "config roundtrip");
+        File.WriteAllText(config, "<PluginSettings><MaximumLines>3</MaximumLines></PluginSettings>"); loaded = PluginSettings.Load(config); Check(loaded.MaximumLines == 3 && loaded.AssistWindowSeconds == 10 && loaded.RecordAssists, "old config defaults");
+        store.Append(new HistoryEntry { Id = "ally", Timestamp = DateTimeOffset.Parse(Stamp(50)), Kind = "EstimatedAssist", KillerWasAlly = true });
+        Check(store.LoadRecent(1)[0].KillerWasAlly, "ally proof persists");
     }
     private static void Languages()
     {
@@ -107,7 +140,7 @@ internal static class Program
         var dll = typeof(PluginSettings).Assembly.Location;
         Check(UpdatePackageVerifier.VerifySha256(dll, UpdatePackageVerifier.ComputeSha256(dll)), "hash valid"); Check(!UpdatePackageVerifier.VerifySha256(dll, new string('0', 64)), "corrupt hash");
         var hash = UpdatePackageVerifier.ComputeSha256(dll); Check(UpdatePackageVerifier.FindManifestHash(hash + "  a.zip", "b.zip") == null, "manifest filename");
-        SemVersion.TryParse("1.0.0", out a); UpdatePackageVerifier.ValidatePluginAssembly(dll, a);
+        SemVersion.TryParse(typeof(PluginSettings).Assembly.GetName().Version.ToString(3), out a); UpdatePackageVerifier.ValidatePluginAssembly(dll, a);
         var instance = new PvPChroniclePlugin(); var target = Path.Combine(artifacts, "日本語 space", "PvPChronicle.dll");
         var registration = new ActPluginData { pluginObj = instance, pluginFile = new FileInfo(target) };
         Check(PvPChroniclePlugin.ResolvePluginDllPath(new[] { registration }, instance, "shadow.dll") == target, "ACT registration priority");

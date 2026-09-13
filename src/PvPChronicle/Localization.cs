@@ -20,6 +20,14 @@ namespace PvPChronicle
         };
         static Localization()
         {
+            R[English]["RecordAssists"] = "Record and display estimated assists";
+            R[Japanese]["RecordAssists"] = "推定アシストを記録・表示する";
+            R[Chinese]["RecordAssists"] = "记录并显示推定助攻";
+            R[Korean]["RecordAssists"] = "추정 도움 기록 및 표시";
+            R[English]["EstimateNote"] = "Assists require your direct damage within the time window and a kill by your party/alliance. Unknown affiliation is excluded. Last attack is not a confirmed finishing blow.";
+            R[Japanese]["EstimateNote"] = "自分の攻撃から判定秒数以内に、味方パーティ／アライアンスが撃破した場合のみ推定アシストを記録します。所属不明は対象外です。最終攻撃は確定したとどめではありません。";
+            R[Chinese]["EstimateNote"] = "仅在您造成直接伤害后的判定时间内，由友方小队或团队成员击杀时记录推定助攻。归属不明时不记录。最后攻击不代表确定的致命技能。";
+            R[Korean]["EstimateNote"] = "내 직접 피해 후 판정 시간 이내에 아군 파티/연합원이 처치한 경우만 추정 도움을 기록합니다. 소속 불명은 제외합니다. 마지막 공격은 확인된 결정타가 아닙니다.";
             foreach (var pair in Table("Kill=Kill (log)|EstimatedAssist=Estimated assist|LastAction=Last attack|Unknown=Unknown|PreviewTarget=Example opponent|PreviewAction=Example action|History=History|OpenHistory=Open history folder|Time=Time|Target=Target|Kind=Result|HistoryError=Could not save history: {0}|LoadError=Could not load history: {0}|Waiting=Waiting for FFXIV player data|FolderError=Could not open the history folder: {0}")) R[English][pair.Key] = pair.Value;
             foreach (var pair in Table("Kill=キル（ログ判定）|EstimatedAssist=推定アシスト|LastAction=最終攻撃|Unknown=不明|PreviewTarget=表示例の対戦相手|PreviewAction=表示例の技|History=履歴|OpenHistory=履歴フォルダーを開く|Time=時刻|Target=対象|Kind=結果|HistoryError=履歴を保存できませんでした: {0}|LoadError=履歴を読み込めませんでした: {0}|Waiting=FFXIVのプレイヤー情報を待っています|FolderError=履歴フォルダーを開けませんでした: {0}")) R[Japanese][pair.Key] = pair.Value;
             foreach (var pair in Table("Kill=击杀（日志判定）|EstimatedAssist=推定助攻|LastAction=最后攻击|Unknown=未知|PreviewTarget=示例对手|PreviewAction=示例技能|History=历史|OpenHistory=打开记录文件夹|Time=时间|Target=目标|Kind=结果|HistoryError=无法保存记录: {0}|LoadError=无法读取记录: {0}|Waiting=等待FFXIV玩家数据|FolderError=无法打开记录文件夹: {0}")) R[Chinese][pair.Key] = pair.Value;

@@ -21,6 +21,8 @@ namespace PvPChronicle
         public DateTimeOffset? ActionTimestamp { get; set; }
         public string Zone { get; set; }
         public int AssistWindowSeconds { get; set; }
+        public bool KillerWasAlly { get; set; }
+        public bool ShouldDisplay(bool recordAssists) => Kind == "Kill" || (Kind == "EstimatedAssist" && recordAssists && KillerWasAlly);
     }
 
     public sealed class CombatLogTracker
@@ -31,6 +33,10 @@ namespace PvPChronicle
         private uint playerId;
         private string playerName = "", zone = "";
         private int assistWindowSeconds = 10;
+        private bool recordAssists = true;
+        private Func<uint, uint, bool> allyCheck;
+        public bool RecordAssists { get { lock (gate) return recordAssists; } set { lock (gate) recordAssists = value; } }
+        internal Func<uint, uint, bool> AllyCheck { set { lock (gate) allyCheck = value; } }
         public uint PlayerId { get { lock (gate) return playerId; } }
         public int AssistWindowSeconds { get { lock (gate) return assistWindowSeconds; } set { lock (gate) assistWindowSeconds = Math.Max(1, Math.Min(60, value)); } }
         public event EventHandler<HistoryEntry> Recorded;
@@ -88,17 +94,18 @@ namespace PvPChronicle
                 deaths[target] = time;
                 if (hit == null || time >= hit.Time) attacks.Remove(target);
                 // Player-to-player death attribution avoids counting PvE NPC kills and unrelated ally deaths.
-                if (source != playerId && (!recent || !IsPlayer(source) || source == target)) return false;
+                if (source != playerId && (!recordAssists || !recent || !IsPlayer(source) || source == target || !IsConfirmedAlly(source))) return false;
                 entry = new HistoryEntry { Id = time.ToString("o") + ":" + playerId.ToString("X8") + ":" + target.ToString("X8"),
                     Timestamp = time, Kind = source == playerId ? "Kill" : "EstimatedAssist", PlayerId = playerId, PlayerName = playerName,
                     TargetId = target, TargetName = f[3], KillerId = source, KillerName = f[5], Zone = zone,
                     ActionId = recent ? hit.Id : null, ActionName = recent ? hit.Name : null, ActionTimestamp = recent ? (DateTimeOffset?)hit.Time : null,
-                    AssistWindowSeconds = assistWindowSeconds };
+                    AssistWindowSeconds = assistWindowSeconds, KillerWasAlly = source != playerId };
             }
             Recorded?.Invoke(this, entry);
             return true;
         }
         private static bool IsPlayer(uint id) => id >= 0x10000000 && id < 0x20000000;
+        private bool IsConfirmedAlly(uint id) { try { return allyCheck != null && allyCheck(playerId, id); } catch { return false; } }
         private static bool Hex(string s, out uint value) => uint.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
         private sealed class Attack { public DateTimeOffset Time; public string Id, Name; }
     }

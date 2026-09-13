@@ -20,6 +20,7 @@ namespace PvPChronicle
         public event EventHandler OpenHistoryRequested;
         private readonly ComboBox language = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
         private readonly CheckBox enabled = C(), locked = C(), preview = C(), checkUpdates = C();
+        private readonly CheckBox recordAssists = C();
         private readonly NumericUpDown duration = N(1, 60, 1), lines = N(1, 30, 1), fontSize = N(12, 40, 1);
         private readonly TrackBar opacity = new TrackBar { Minimum = 30, Maximum = 100, TickFrequency = 5, AutoSize = false, Height = 36, Width = 190 };
         private readonly Label languageLabel = L(), durationLabel = L(), linesLabel = L(), opacityLabel = L(), opacityValue = L(), fontSizeLabel = L();
@@ -45,6 +46,7 @@ namespace PvPChronicle
             settings = value; Dock = DockStyle.Fill; BackColor = Color.FromArgb(244, 247, 251); Padding = new Padding(14);
             language.Items.AddRange(new object[] { "English", "日本語", "简体中文", "한국어" }); language.SelectedIndex = LanguageIndex(settings.Language);
             enabled.Checked = settings.OverlayEnabled; locked.Checked = settings.Locked; preview.Checked = settings.Preview;
+            recordAssists.Checked = settings.RecordAssists;
             duration.Value = Bound(duration, settings.AssistWindowSeconds); lines.Value = Bound(lines, settings.MaximumLines);
             opacity.Value = Math.Max(opacity.Minimum, Math.Min(opacity.Maximum, settings.OpacityPercent)); opacityValue.Text = opacity.Value + "%";
             fontSize.Value = Bound(fontSize, settings.FontSize); checkUpdates.Checked = settings.CheckUpdatesOnStartup;
@@ -83,15 +85,16 @@ namespace PvPChronicle
         private Control BuildSettingsLayout()
         {
             var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, AutoScroll = true };
-            var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, MinimumSize = new Size(600, 0), ColumnCount = 2, RowCount = 10, Padding = new Padding(24, 20, 24, 20), BackColor = Color.White };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, MinimumSize = new Size(600, 0), ColumnCount = 2, RowCount = 11, Padding = new Padding(24, 20, 24, 20), BackColor = Color.White };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 235)); layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            var heights = new[] { 42, 34, 34, 34, 42, 42, 46, 42, 62, 78 }; foreach (var h in heights) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
+            var heights = new[] { 42, 34, 34, 34, 38, 42, 42, 46, 42, 62, 92 }; foreach (var h in heights) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
             layout.Controls.Add(languageLabel, 0, 0); layout.Controls.Add(language, 1, 0);
             Wide(layout, enabled, 1); Wide(layout, locked, 2); Wide(layout, preview, 3);
-            layout.Controls.Add(durationLabel, 0, 4); layout.Controls.Add(duration, 1, 4); layout.Controls.Add(linesLabel, 0, 5); layout.Controls.Add(lines, 1, 5);
-            layout.Controls.Add(opacityLabel, 0, 6); layout.Controls.Add(SliderPanel(opacity, opacityValue), 1, 6); layout.Controls.Add(fontSizeLabel, 0, 7); layout.Controls.Add(fontSize, 1, 7);
-            hint.AutoSize = false; hint.Dock = DockStyle.Fill; hint.ForeColor = Color.FromArgb(73, 96, 128); hint.Padding = new Padding(0, 8, 0, 0); Wide(layout, hint, 8);
-            estimate.AutoSize = false; estimate.Dock = DockStyle.Fill; estimate.ForeColor = Color.FromArgb(151, 91, 29); estimate.Padding = new Padding(0, 5, 0, 0); Wide(layout, estimate, 9);
+            Wide(layout, recordAssists, 4);
+            layout.Controls.Add(durationLabel, 0, 5); layout.Controls.Add(duration, 1, 5); layout.Controls.Add(linesLabel, 0, 6); layout.Controls.Add(lines, 1, 6);
+            layout.Controls.Add(opacityLabel, 0, 7); layout.Controls.Add(SliderPanel(opacity, opacityValue), 1, 7); layout.Controls.Add(fontSizeLabel, 0, 8); layout.Controls.Add(fontSize, 1, 8);
+            hint.AutoSize = false; hint.Dock = DockStyle.Fill; hint.ForeColor = Color.FromArgb(73, 96, 128); hint.Padding = new Padding(0, 8, 0, 0); Wide(layout, hint, 9);
+            estimate.AutoSize = false; estimate.Dock = DockStyle.Fill; estimate.ForeColor = Color.FromArgb(151, 91, 29); estimate.Padding = new Padding(0, 5, 0, 0); Wide(layout, estimate, 10);
             panel.Controls.Add(layout); return panel;
         }
 
@@ -129,6 +132,7 @@ namespace PvPChronicle
         private void WireEvents()
         {
             language.SelectedIndexChanged += Changed; enabled.CheckedChanged += Changed; locked.CheckedChanged += Changed; preview.CheckedChanged += Changed; duration.ValueChanged += Changed; lines.ValueChanged += Changed;
+            recordAssists.CheckedChanged += Changed;
             opacity.ValueChanged += delegate { opacityValue.Text = opacity.Value + "%"; Changed(this, EventArgs.Empty); }; fontSize.ValueChanged += Changed; checkUpdates.CheckedChanged += Changed;
             checkButton.Click += delegate { CheckUpdatesRequested?.Invoke(this, EventArgs.Empty); }; updateButton.Click += delegate { InstallUpdateRequested?.Invoke(this, EventArgs.Empty); }; laterButton.Click += delegate { LaterRequested?.Invoke(this, EventArgs.Empty); }; supportButton.Click += OpenSupportLink;
         }
@@ -136,6 +140,7 @@ namespace PvPChronicle
         public void ApplyTo(PluginSettings value)
         {
             value.Language = CurrentLanguage; value.OverlayEnabled = enabled.Checked; value.Locked = locked.Checked; value.Preview = preview.Checked; value.AssistWindowSeconds = (int)duration.Value;
+            value.RecordAssists = recordAssists.Checked;
             value.MaximumLines = (int)lines.Value; value.OpacityPercent = opacity.Value; value.FontSize = (int)fontSize.Value; value.CheckUpdatesOnStartup = checkUpdates.Checked; value.Normalize();
         }
 
@@ -160,6 +165,7 @@ namespace PvPChronicle
             headerTitle.Text = T("PluginTab"); headerTitle.Font = new Font(family, 17f, FontStyle.Bold); headerSubtitle.Text = T("Subtitle"); headerSubtitle.Font = new Font(family, 8.5f);
             tabs.Font = new Font(family, 9f, FontStyle.Bold); settingsTab.Text = T("Settings"); updateTab.Text = T("Updates"); supportTab.Text = T("Support");
             historyTab.Text = T("History"); openHistory.Text = T("OpenHistory"); SetHistory(history);
+            recordAssists.Text = T("RecordAssists");
             languageLabel.Text = T("Language"); enabled.Text = T("Enabled"); locked.Text = T("Locked"); preview.Text = T("Preview"); durationLabel.Text = T("Duration"); linesLabel.Text = T("Lines"); opacityLabel.Text = T("Opacity"); fontSizeLabel.Text = T("FontSize"); hint.Text = T("Hint"); estimate.Text = T("EstimateNote");
             updateTitle.Text = T("UpdateTitle"); updateTitle.Font = new Font(family, 16f, FontStyle.Bold); updateDescription.Text = T("UpdateDescription"); checkUpdates.Text = T("CheckStartup"); checkButton.Text = T("CheckNow"); currentCaption.Text = T("CurrentVersion"); latestCaption.Text = T("LatestVersion"); releaseCaption.Text = T("ReleaseNotes"); updateButton.Text = T("UpdateNow"); laterButton.Text = T("Later");
             supportHeading.Text = T("SupportHeading"); supportHeading.Font = new Font(family, 18f, FontStyle.Bold); supportDescription.Text = T("SupportDescription"); supportOptional.Text = T("SupportBody"); supportOptional.Font = new Font(family, 9.5f, FontStyle.Bold); supportButton.Text = T("SupportButton"); supportSafety.Text = T("SupportSafety");
@@ -171,7 +177,7 @@ namespace PvPChronicle
             history = new System.Collections.Generic.List<HistoryEntry>(entries);
             historyGrid.Columns.Clear();
             foreach (var key in new[] { "Time", "Kind", "Target", "LastAction" }) { var column = new DataGridViewTextBoxColumn { HeaderText = T(key), MinimumWidth = 140, SortMode = DataGridViewColumnSortMode.NotSortable }; historyGrid.Columns.Add(column); }
-            foreach (var entry in history) historyGrid.Rows.Add(entry.Timestamp.ToLocalTime().ToString("MM-dd HH:mm:ss"), T(entry.Kind), entry.TargetName, string.IsNullOrWhiteSpace(entry.ActionName) ? T("Unknown") : entry.ActionName);
+            foreach (var entry in history) if (entry.ShouldDisplay(settings.RecordAssists)) historyGrid.Rows.Add(entry.Timestamp.ToLocalTime().ToString("MM-dd HH:mm:ss"), T(entry.Kind), entry.TargetName, string.IsNullOrWhiteSpace(entry.ActionName) ? T("Unknown") : entry.ActionName);
         }
 
         private void SetUpdateMessage(string key, params object[] args) { updateMessageKey = key; updateMessageArgs = args ?? new object[0]; RefreshUpdateMessage(); }
