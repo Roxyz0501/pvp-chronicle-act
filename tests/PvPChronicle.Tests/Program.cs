@@ -21,7 +21,7 @@ internal static class Program
         try
         {
             artifacts = Path.Combine(Environment.CurrentDirectory, "artifacts", "tests"); Directory.CreateDirectory(artifacts);
-            Tracking(); AssistRules(); Persistence(); Languages(); UpdateSafety(); WindowStability(); RenderSettings();
+            Tracking(); SessionTotals(); AssistRules(); Persistence(); Languages(); UpdateSafety(); WindowStability(); RenderSettings();
             if (Environment.GetEnvironmentVariable("PVPCHRONICLE_UPDATE_INTEGRATION") == "1")
             {
                 using (var service = new UpdateService())
@@ -70,6 +70,27 @@ internal static class Program
         Check(!t.ProcessLine("25|bad|10000002|x|10000001|x"), "malformed time"); Check(!t.ProcessLine("21|" + Stamp(0)), "truncated line");
         t.AssistWindowSeconds = 60; t.ProcessLine(Hit(20)); t.ProcessLine(Death(80, source: "10000003")); Check(fresh.Count == 1, "inclusive configured boundary");
         t.ProcessLine(Death(81, target: "10000001")); Check(fresh.Count == 1, "own death excluded");
+    }
+    private static void SessionTotals()
+    {
+        var s = new SessionStats(); const uint me = 0x10000001;
+        s.ProcessLine(Hit(1), me); Check(s.Snapshot().DamageDealt == 0, "outside PvP excluded");
+        s.ProcessLine("01|" + Stamp(2) + "|378|Onsal Hakair|", me);
+        Check(s.Snapshot().InPvp, "PvP zone detected");
+        s.ProcessLine(Hit(3), me); s.ProcessLine(Hit(3), me); Check(s.Snapshot().DamageDealt == 1000, "damage and duplicate suppression");
+        s.ProcessLine(Hit(4, target: "10000001", source: "10000002"), me); Check(s.Snapshot().DamageTaken == 1000, "incoming damage");
+        s.ProcessLine(Hit(5, flags: "4"), me); Check(s.Snapshot().DamageDealt == 1000, "healing not damage");
+        s.ProcessLine("24|" + Stamp(6) + "|10000002|Target|DoT|0|64|0|0|0|0|||0|0|0|0|10000001|Me|", me);
+        s.ProcessLine("24|" + Stamp(7) + "|10000001|Me|DoT|0|C8|", me);
+        Check(s.Snapshot().DamageDealt == 1100 && s.Snapshot().DamageTaken == 1200, "DoT damage");
+        s.RecordKill(); Check(s.Snapshot().Kills == 1, "session kill count");
+        s.ProcessLine("01|" + Stamp(8) + "|155|Housing|", me); s.ProcessLine(Hit(9), me);
+        Check(!s.Snapshot().InPvp && s.Snapshot().DamageDealt == 1100, "outside PvP preserves result");
+        s.ProcessLine("01|" + Stamp(10) + "|378|Onsal Hakair|", me);
+        Check(s.Snapshot().Kills == 0 && s.Snapshot().DamageDealt == 0 && s.Snapshot().DamageTaken == 0, "entry resets all counters");
+        s.ProcessLine(Hit(11), me); s.Bootstrap(888, me); Check(s.Snapshot().DamageDealt == 1000, "poll does not reset totals");
+        s.ProcessLine("01|" + Stamp(12) + "|378|Onsal Hakair|", me); Check(s.Snapshot().DamageDealt == 0, "same-zone reload resets");
+        Check(Localization.Get("ja", "Kill") == "キル" && Localization.Get("ja", "EstimatedAssist") == "アシスト", "short result labels");
     }
     private static void AssistRules()
     {
@@ -165,6 +186,7 @@ internal static class Program
             }
             Check(destroyed == 0 && hidden == 0, "no handle recreation or Hide");
             s.OverlayEnabled = true; s.Preview = true; s.Locked = false; overlay.ApplySettings(s);
+            overlay.SetStats(new StatsSnapshot { InPvp = true, Kills = 11, DamageDealt = 1234567, DamageTaken = 987654 });
             using (var bitmap = new Bitmap(overlay.Width, overlay.Height)) { overlay.DrawToBitmap(bitmap, overlay.ClientRectangle); bitmap.Save(Path.Combine(artifacts, "overlay-ja.png")); }
         }
     }

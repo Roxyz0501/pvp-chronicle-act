@@ -13,6 +13,12 @@ namespace PvPChronicle
         private List<HistoryEntry> entries = new List<HistoryEntry>();
         private bool contentVisible, restoring;
         private int scroll;
+        private StatsSnapshot stats = new StatsSnapshot();
+        public void SetStats(StatsSnapshot value)
+        {
+            if (stats.InPvp == value.InPvp && stats.Kills == value.Kills && stats.DamageDealt == value.DamageDealt && stats.DamageTaken == value.DamageTaken) return;
+            stats = value; RefreshVisibility(); Invalidate();
+        }
         private readonly Color background = Color.FromArgb(24, 27, 30);
         public event EventHandler BoundsChangedByUser;
         public OverlayForm(PluginSettings value)
@@ -56,7 +62,7 @@ namespace PvPChronicle
         protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); if (settings.Locked) return; scroll = Math.Max(0, Math.Min(Math.Min(settings.MaximumLines, entries.Count) - 1, scroll - Math.Sign(e.Delta))); Invalidate(); }
         private void RefreshVisibility()
         {
-            contentVisible = settings.OverlayEnabled && (settings.Preview || entries.Count > 0);
+            contentVisible = settings.OverlayEnabled && (stats.InPvp || settings.Preview || entries.Count > 0);
             if (!Visible) { Opacity = 0; Show(); }
             var style = GetWindowLong(Handle, -20);
             var wanted = settings.Locked || !contentVisible ? style | 0x20 : style & ~0x20;
@@ -81,11 +87,19 @@ namespace PvPChronicle
             using (var gold = new Pen(Color.FromArgb(202, 165, 87), 2))
             {
                 Draw(g, "PvP Chronicle", title, new Rectangle(12, 5, Width - 24, 26), Color.White);
-                g.DrawLine(gold, 12, 34, Width - 12, 34);
+                var columnWidth = (Width - 24) / 3;
+                var labels = new[] { "Kill", "DamageDealt", "DamageTaken" };
+                var totals = new[] { stats.Kills, stats.DamageDealt, stats.DamageTaken };
+                for (var i = 0; i < 3; i++)
+                {
+                    Draw(g, Localization.Get(settings.Language, labels[i]), small, new Rectangle(12 + i * columnWidth, 34, columnWidth - 6, 20), Color.FromArgb(189, 201, 211));
+                    Draw(g, totals[i].ToString("N0"), title, new Rectangle(12 + i * columnWidth, 56, columnWidth - 6, 26), Color.White);
+                }
+                g.DrawLine(gold, 12, 86, Width - 12, 86);
                 var visible = entries.Take(settings.MaximumLines).ToList();
                 if (settings.Preview && visible.Count == 0)
                     visible.Add(new HistoryEntry { Timestamp = DateTimeOffset.Now, Kind = settings.RecordAssists ? "EstimatedAssist" : "Kill", TargetName = Localization.Get(settings.Language, "PreviewTarget"), ActionName = Localization.Get(settings.Language, "PreviewAction") });
-                int y = 42, rowHeight = text.Height + small.Height + 12;
+                int y = 94, rowHeight = text.Height + small.Height + 12;
                 foreach (var entry in visible.Skip(scroll))
                 {
                     if (y + rowHeight > Height - 24) break;
@@ -97,7 +111,7 @@ namespace PvPChronicle
                         new Rectangle(12 + split, y + small.Height + 2, Width - 24 - split, text.Height + 2), Color.FromArgb(189, 201, 211));
                     y += rowHeight;
                 }
-                var shown = Math.Max(0, (y - 42) / rowHeight);
+                var shown = Math.Max(0, (y - 94) / rowHeight);
                 Draw(g, (visible.Count == 0 ? "0" : (scroll + 1) + "-" + (scroll + shown)) + " / " + visible.Count, small, new Rectangle(12, Height - 22, Width - 40, 20), Color.FromArgb(174, 185, 196));
                 if (!settings.Locked) { g.DrawLine(Pens.Gray, Width - 16, Height - 5, Width - 5, Height - 16); g.DrawLine(Pens.Gray, Width - 10, Height - 5, Width - 5, Height - 10); }
             }

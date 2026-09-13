@@ -14,6 +14,7 @@ namespace PvPChronicle
     public sealed class PvPChroniclePlugin : IActPluginV1
     {
         private readonly CombatLogTracker tracker = new CombatLogTracker();
+        private readonly SessionStats stats = new SessionStats();
         private readonly UpdateService updateService = new UpdateService();
         private readonly CancellationTokenSource updateCancellation = new CancellationTokenSource();
         private UpdateCheckResult lastUpdateResult;
@@ -43,8 +44,8 @@ namespace PvPChronicle
             if (settings.CheckUpdatesOnStartup) CheckForUpdates(false);
         }
         public static string HistoryDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Advanced Combat Tracker", "PvPChronicle", "History");
-        private void LogLineRead(bool isImport, LogLineEventArgs info) { if (isImport || info == null) return; tracker.ProcessLine((info.originalLogLine ?? "").Contains("|") ? info.originalLogLine : info.logLine); }
-        private void Recorded(object sender, HistoryEntry e) { pending.Enqueue(e); }
+        private void LogLineRead(bool isImport, LogLineEventArgs info) { if (isImport || info == null) return; var line = (info.originalLogLine ?? "").Contains("|") ? info.originalLogLine : info.logLine; tracker.ProcessLine(line); stats.ProcessLine(line, tracker.PlayerId); }
+        private void Recorded(object sender, HistoryEntry e) { if (e.Kind == "Kill") stats.RecordKill(); pending.Enqueue(e); }
         private void SettingsChanged(object sender, EventArgs e) { control.ApplyTo(settings); tracker.AssistWindowSeconds = settings.AssistWindowSeconds; tracker.RecordAssists = settings.RecordAssists; overlay.ApplySettings(settings); RefreshHistory(); page.Text = Localization.Get(settings.Language, "PluginTab"); Save(); }
         private void RefreshHistory() { displayedPlayer = tracker.PlayerId; overlay.SetEntries(history.Where(x => x.PlayerId == displayedPlayer && x.ShouldDisplay(settings.RecordAssists))); control.SetHistory(history); }
         private void Pump(object sender, EventArgs e)
@@ -52,6 +53,7 @@ namespace PvPChronicle
             if (++bootstrapTicks >= 8) { bootstrapTicks = 0; BootstrapPlayer(); }
             if (displayedPlayer != tracker.PlayerId) { RefreshHistory(); status.Text = Localization.Get(settings.Language, tracker.PlayerId == 0 ? "Waiting" : "Started"); }
             Drain();
+            overlay.SetStats(stats.Snapshot());
         }
         private void Drain()
         {
@@ -79,6 +81,8 @@ namespace PvPChronicle
                     var type = repository.GetType().GetInterfaces().FirstOrDefault(x => x.FullName == "FFXIV_ACT_Plugin.Common.IDataRepository") ?? repository.GetType();
                     var method = type.GetMethod("GetCurrentPlayerID");
                     if (method != null) tracker.SetPlayer(Convert.ToUInt32(method.Invoke(repository, null)), null);
+                    var territory = type.GetMethod("GetCurrentTerritoryID");
+                    if (territory != null) stats.Bootstrap(Convert.ToUInt32(territory.Invoke(repository, null)), tracker.PlayerId);
                     return;
                 }
             }

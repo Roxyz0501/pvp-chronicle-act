@@ -25,7 +25,14 @@ FFXIV PvPのキルと推定アシストを記録し、直近N件をオーバー�
 
 形式は [cactbot LogGuide](https://github.com/OverlayPlugin/cactbot/blob/main/docs/LogGuide.md) の21/22（攻撃）、25（撃破）、01（エリア）、02（自分）を参照しています。実際のPvP試合ログによる検証は未実施です。
 
-## 保存先
+## 試合中の集計
+
+オーバーレイ上部に自分のキル数・与ダメージ・被ダメージを表示します。PvPエリア読み込み（01ログ）のたびに集計を0へリセットし、PvPエリア内だけ加算します。退出時は最後の結果を保持します。プラグインの途中起動では起動以降を集計します。履歴ファイルはリセットで削除しません。
+ダメージは21/22の直接ダメージと24のDoTを集計します。回復・反射・自分以外のペットの与ダメージは対象外です。ログ値を使うため、オーバーキルやバリア等によって試合結果画面の値と異なる場合があります。
+PvPエリアIDは [TerritoryType.IsPvpZone](https://github.com/xivapi/ffxiv-datamining/blob/master/csv/en/TerritoryType.csv)（2026-09-13確認）を使用しています。
+表示名は「キル」「アシスト」です。アシストの判定方式は従来と同じ推定方式です。
+
+## 保存場所
 
 `%APPDATA%/Advanced Combat Tracker/PvPChronicle/History/YYYY-MM-DD.jsonl`
 
