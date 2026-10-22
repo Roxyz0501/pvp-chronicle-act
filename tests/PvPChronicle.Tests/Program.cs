@@ -129,7 +129,16 @@ internal static class Program
         for (int i = 0; i < 40; i++) store.Append(new HistoryEntry { Id = i.ToString(), Timestamp = DateTimeOffset.Parse(Stamp(i)), Kind = "Kill", PlayerId = 0x10000001, TargetId = 0x10000002, TargetName = "Test \" name\n日本語", ActionName = "技", ActionTimestamp = DateTimeOffset.Parse(Stamp(i)) });
         File.AppendAllText(Directory.GetFiles(folder).Single(), "broken json\n");
         var recent = store.LoadRecent(30); Check(recent.Count == 30 && recent[0].Id == "39" && recent[29].Id == "10", "latest N restored"); Check(recent[0].TargetName == "Test \" name\n日本語", "UTF8 JSON roundtrip");
-        var config = Path.Combine(folder, "config.xml"); var s = new PluginSettings { MaximumLines = 30, AssistWindowSeconds = 60, Language = "ko", RecordAssists = false }; s.Save(config); s.Save(config);
+        var config = Path.Combine(folder, "config.xml"); var s = new PluginSettings { MaximumLines = 30, AssistWindowSeconds = 60, Language = "ko", RecordAssists = false }; s.Save(config);
+        var writes = 0; var persistence = new SettingsPersistence(s, config, (value, file) => { writes++; value.Save(file); });
+        Check(!persistence.SaveIfChanged() && writes == 0, "unchanged settings write zero times");
+        s.MaximumLines = 12; s.FontSize = 20; Check(persistence.SaveIfChanged() && writes == 1, "multiple changes coalesce at periodic check");
+        Check(!persistence.SaveIfChanged() && writes == 1, "unchanged periodic check does not write");
+        s.MaximumLines = 30; s.FontSize = 16; Check(persistence.SaveIfChanged() && writes == 2, "changed-back-to-saved state persists only when different");
+        persistence = new SettingsPersistence(s, config, (value, file) => { throw new IOException("simulated save failure"); });
+        s.MaximumLines = 18; Throws(() => persistence.SaveIfChanged(), "failed settings save surfaced");
+        Check(persistence.IsDirty && PluginSettings.Load(config).MaximumLines == 30, "failed save preserves prior file and dirty state");
+        s.MaximumLines = 30; Check(!persistence.SaveIfChanged() && !persistence.IsDirty, "reverting to last saved state clears dirty state");
         var loaded = PluginSettings.Load(config); Check(loaded.MaximumLines == 30 && loaded.AssistWindowSeconds == 60 && loaded.Language == "ko" && !loaded.RecordAssists, "config roundtrip");
         File.WriteAllText(config, "<PluginSettings><MaximumLines>3</MaximumLines></PluginSettings>"); loaded = PluginSettings.Load(config); Check(loaded.MaximumLines == 3 && loaded.AssistWindowSeconds == 10 && loaded.RecordAssists, "old config defaults");
         store.Append(new HistoryEntry { Id = "ally", Timestamp = DateTimeOffset.Parse(Stamp(50)), Kind = "EstimatedAssist", KillerWasAlly = true });

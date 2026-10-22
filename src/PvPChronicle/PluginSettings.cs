@@ -47,9 +47,20 @@ namespace PvPChronicle
         }
         public void Save(string path)
         {
-            Normalize(); Directory.CreateDirectory(Path.GetDirectoryName(path)); var temp = path + ".tmp";
-            using (var s = File.Create(temp)) new XmlSerializer(typeof(PluginSettings)).Serialize(s, this);
-            if (File.Exists(path)) File.Replace(temp, path, path + ".bak"); else File.Move(temp, path);
+            Normalize();
+            var directory = Path.GetDirectoryName(path);
+            Directory.CreateDirectory(directory);
+            var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                using (var s = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    new XmlSerializer(typeof(PluginSettings)).Serialize(s, this);
+                    s.Flush(true);
+                }
+                if (File.Exists(path)) File.Replace(temp, path, null); else File.Move(temp, path);
+            }
+            finally { if (File.Exists(temp)) File.Delete(temp); }
         }
     }
 }
