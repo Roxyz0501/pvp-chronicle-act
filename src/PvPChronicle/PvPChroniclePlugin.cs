@@ -22,6 +22,8 @@ namespace PvPChronicle
         private readonly object updateGate = new object();
         private readonly List<Task> updateTasks = new List<Task>();
         private UpdateCheckResult lastUpdateResult;
+        private UpdateCheckResult pendingUpdateResult;
+        private bool pendingUpdateManual;
         private bool updateCheckRunning;
         private bool stopped, acceptingLogs = true;
         private int activeLogCallbacks;
@@ -67,6 +69,7 @@ namespace PvPChronicle
         private void RefreshHistory() { displayedPlayer = tracker.PlayerId; overlay.SetEntries(history.Where(x => x.PlayerId == displayedPlayer && x.ShouldDisplay(settings.RecordAssists))); control.SetHistory(history); }
         private void Pump(object sender, EventArgs e)
         {
+            ApplyPendingUpdateResult();
             if (++bootstrapTicks >= 8) { bootstrapTicks = 0; BootstrapPlayer(); }
             if (displayedPlayer != tracker.PlayerId) { RefreshHistory(); status.Text = Localization.Get(settings.Language, tracker.PlayerId == 0 ? "Waiting" : "Started"); }
             Drain();
@@ -110,21 +113,26 @@ namespace PvPChronicle
         {
             if (updateCheckRunning || control == null || control.IsDisposed || stopped) return; updateCheckRunning = true; control.SetUpdateChecking(); var current = Assembly.GetExecutingAssembly().GetName().Version;
             var result = await updateService.CheckAsync(current, updateCancellation.Token).ConfigureAwait(false); if (stopped || updateCancellation.IsCancellationRequested) return;
-            SafeUi(() =>
+            lock (updateGate) { pendingUpdateResult = result; pendingUpdateManual = manual; }
+        }
+        private void ApplyPendingUpdateResult()
+        {
+            UpdateCheckResult result; bool manual;
+            lock (updateGate) { result = pendingUpdateResult; manual = pendingUpdateManual; pendingUpdateResult = null; }
+            if (result == null || stopped || control == null || control.IsDisposed) return;
+            updateCheckRunning = false; lastUpdateResult = result;
+            var current = Assembly.GetExecutingAssembly().GetName().Version;
+            if (!manual && result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null &&
+                string.Equals(settings.SkippedVersion, result.Release.Version.ToString(), StringComparison.OrdinalIgnoreCase))
+            { control.ShowUpdateResult(result, current); control.ShowUpdateSkipped(result.Release.Version.ToString()); }
+            else
             {
-                updateCheckRunning = false; lastUpdateResult = result;
-                if (!manual && result != null && result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null &&
-                    string.Equals(settings.SkippedVersion, result.Release.Version.ToString(), StringComparison.OrdinalIgnoreCase))
-                { control.ShowUpdateResult(result, current); control.ShowUpdateSkipped(result.Release.Version.ToString()); }
-                else
+                control.ShowUpdateResult(result, current);
+                if (result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null)
                 {
-                    control.ShowUpdateResult(result, current);
-                    if (result != null && result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null)
-                    {
-                        control.FocusUpdateTab(); status.Text = Localization.Get(settings.Language, "UpdateAvailable", current.ToString(3), result.Release.Version);
-                    }
+                    control.FocusUpdateTab(); status.Text = Localization.Get(settings.Language, "UpdateAvailable", current.ToString(3), result.Release.Version);
                 }
-            });
+            }
         }
         private void InstallUpdate(object sender, EventArgs e) => TrackUpdateTask(PrepareUpdateAsync());
         private Task PrepareUpdateAsync()
@@ -136,7 +144,6 @@ namespace PvPChronicle
             return Task.CompletedTask;
         }
         private void TrackUpdateTask(Task task) { lock (updateGate) { updateTasks.RemoveAll(x => x.IsCompleted); updateTasks.Add(task); } }
-        private void SafeUi(Action action) { try { if (page != null && !page.IsDisposed && page.IsHandleCreated) page.BeginInvoke((MethodInvoker)delegate { if (!stopped && !page.IsDisposed) action(); }); } catch (InvalidOperationException) { } }
         internal static string ResolvePluginDllPath(IEnumerable<ActPluginData> plugins, IActPluginV1 instance, string assemblyLocation)
         {
             if (plugins != null)
