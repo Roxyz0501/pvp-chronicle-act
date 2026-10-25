@@ -28,6 +28,14 @@ namespace PvPChronicle
             R[Japanese]["ManualUpdateOnly"] = "自動インストールは無効です。Releaseをダウンロードし、ACT終了後にプラグインを置き換えてください。";
             R[Chinese]["ManualUpdateOnly"] = "自动安装已禁用。请下载Release，并在关闭ACT后替换插件。";
             R[Korean]["ManualUpdateOnly"] = "자동 설치가 비활성화되었습니다. Release를 다운로드하고 ACT를 종료한 뒤 플러그인을 교체하세요.";
+            R[English]["HistoryQueueFull"] = "History queue is full; could not accept {0} records.";
+            R[Japanese]["HistoryQueueFull"] = "履歴キューが満杯のため、{0}件を受け付けられませんでした。";
+            R[Chinese]["HistoryQueueFull"] = "历史队列已满，无法接收{0}条记录。";
+            R[Korean]["HistoryQueueFull"] = "기록 대기열이 가득 차서 {0}개 항목을 받지 못했습니다.";
+            R[English]["HistoryShutdownFailure"] = "Could not flush {0} pending history records: {1}";
+            R[Japanese]["HistoryShutdownFailure"] = "終了時に履歴{0}件を保存できませんでした: {1}";
+            R[Chinese]["HistoryShutdownFailure"] = "退出时无法保存{0}条待处理记录：{1}";
+            R[Korean]["HistoryShutdownFailure"] = "종료 중 대기 기록 {0}개를 저장하지 못했습니다: {1}";
             R[Chinese]["UpdateDescription"] = "检查GitHub Releases稳定版。请在关闭ACT后手动安装更新。";
             R[Chinese]["UpdateNow"] = "手动安装说明";
             R[Korean]["UpdateDescription"] = "GitHub Releases 안정 버전을 확인합니다. ACT를 종료한 후 수동으로 설치하세요.";

@@ -8,14 +8,52 @@ using System.Web.Script.Serialization;
 
 namespace PvPChronicle
 {
+    internal sealed class HistoryWriteResult
+    {
+        internal int WriteOperations { get; set; }
+        internal long BytesWritten { get; set; }
+    }
+
     public sealed class HistoryStore
     {
         private readonly string directory;
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
         public HistoryStore(string directory) { this.directory = directory; }
-        public void Append(HistoryEntry entry)
+        public void Append(HistoryEntry entry) => AppendBatch(new[] { entry });
+
+        internal HistoryWriteResult AppendBatch(IList<HistoryEntry> entries)
         {
-            Directory.CreateDirectory(directory);
+            if (entries == null) throw new ArgumentNullException("entries");
+            var result = new HistoryWriteResult();
+            foreach (var group in entries.Where(x => x != null).GroupBy(x => x.Timestamp.ToLocalTime().ToString("yyyy-MM-dd"), StringComparer.Ordinal))
+            {
+                Directory.CreateDirectory(directory);
+                var path = Path.Combine(directory, group.Key + ".jsonl");
+                var lines = group.Select(Serialize).ToList();
+                var bytes = lines.Select(x => Encoding.UTF8.GetBytes(x + Environment.NewLine)).ToList();
+                using (var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read))
+                {
+                    RepairPartialTail(stream);
+                    var writtenPrefix = FindWrittenPrefix(stream, lines, bytes.Sum(x => (long)x.Length));
+                    if (writtenPrefix == lines.Count) continue;
+                    stream.Position = stream.Length;
+                    var payload = new byte[bytes.Skip(writtenPrefix).Sum(x => x.Length)]; var offset = 0;
+                    for (var i = writtenPrefix; i < bytes.Count; i++)
+                    {
+                        Buffer.BlockCopy(bytes[i], 0, payload, offset, bytes[i].Length);
+                        offset += bytes[i].Length;
+                    }
+                    stream.Write(payload, 0, payload.Length);
+                    stream.Flush(true);
+                    result.BytesWritten += payload.Length;
+                    result.WriteOperations++;
+                }
+            }
+            return result;
+        }
+
+        private string Serialize(HistoryEntry entry)
+        {
             var record = new Dictionary<string, object> {
                 ["id"] = entry.Id, ["timestamp"] = entry.Timestamp.ToString("o"), ["kind"] = entry.Kind,
                 ["playerId"] = entry.PlayerId, ["playerName"] = entry.PlayerName, ["targetId"] = entry.TargetId, ["targetName"] = entry.TargetName,
@@ -23,7 +61,48 @@ namespace PvPChronicle
                 ["lastActionName"] = entry.ActionName, ["lastActionTimestamp"] = entry.ActionTimestamp?.ToString("o"),
                 ["zone"] = entry.Zone, ["assistWindowSeconds"] = entry.AssistWindowSeconds, ["killerWasAlly"] = entry.KillerWasAlly
             };
-            File.AppendAllText(Path.Combine(directory, entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd") + ".jsonl"), json.Serialize(record) + Environment.NewLine, new UTF8Encoding(false));
+            return json.Serialize(record);
+        }
+
+        private static void RepairPartialTail(FileStream stream)
+        {
+            if (stream.Length == 0) return;
+            stream.Position = stream.Length - 1;
+            if (stream.ReadByte() == (byte)'\n') return;
+            var position = stream.Length - 1;
+            while (position >= 0)
+            {
+                stream.Position = position;
+                if (stream.ReadByte() == (byte)'\n') { stream.SetLength(position + 1); return; }
+                position--;
+            }
+            stream.SetLength(0);
+        }
+
+        private static int FindWrittenPrefix(FileStream stream, IList<string> expected, long expectedBytes)
+        {
+            if (stream.Length == 0 || expected.Count == 0) return 0;
+            var window = Math.Min(stream.Length, Math.Min(expectedBytes + 256, 1024 * 1024));
+            stream.Position = stream.Length - window;
+            var tail = new byte[(int)window]; var offset = 0;
+            while (offset < tail.Length)
+            {
+                var read = stream.Read(tail, offset, tail.Length - offset);
+                if (read == 0) break;
+                offset += read;
+            }
+            var text = Encoding.UTF8.GetString(tail, 0, offset);
+            var lines = text.Split('\n').ToList();
+            if (stream.Length > window && lines.Count > 0) lines.RemoveAt(0);
+            if (lines.Count > 0 && lines[lines.Count - 1].Length == 0) lines.RemoveAt(lines.Count - 1);
+            for (var count = Math.Min(lines.Count, expected.Count); count > 0; count--)
+            {
+                var matches = true;
+                for (var i = 0; i < count; i++)
+                    if (!string.Equals(lines[lines.Count - count + i].TrimEnd('\r'), expected[i], StringComparison.Ordinal)) { matches = false; break; }
+                if (matches) return count;
+            }
+            return 0;
         }
         public List<HistoryEntry> LoadRecent(int count)
         {

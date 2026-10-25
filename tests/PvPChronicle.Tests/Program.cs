@@ -21,7 +21,7 @@ internal static class Program
         try
         {
             artifacts = Path.Combine(Environment.CurrentDirectory, "artifacts", "tests"); Directory.CreateDirectory(artifacts);
-            Tracking(); SessionTotals(); AssistRules(); Persistence(); Languages(); UpdateSafety(); WindowStability(); RenderSettings();
+            Tracking(); SessionTotals(); AssistRules(); Persistence(); HistoryWriterTests(); Languages(); UpdateSafety(); WindowStability(); RenderSettings();
             if (Environment.GetEnvironmentVariable("PVPCHRONICLE_UPDATE_INTEGRATION") == "1")
             {
                 using (var service = new UpdateService())
@@ -143,6 +143,72 @@ internal static class Program
         File.WriteAllText(config, "<PluginSettings><MaximumLines>3</MaximumLines></PluginSettings>"); loaded = PluginSettings.Load(config); Check(loaded.MaximumLines == 3 && loaded.AssistWindowSeconds == 10 && loaded.RecordAssists, "old config defaults");
         store.Append(new HistoryEntry { Id = "ally", Timestamp = DateTimeOffset.Parse(Stamp(50)), Kind = "EstimatedAssist", KillerWasAlly = true });
         Check(store.LoadRecent(1)[0].KillerWasAlly, "ally proof persists");
+    }
+    private static HistoryEntry History(int index, int day = 13) => new HistoryEntry
+    {
+        Id = "batch-" + index, Timestamp = new DateTimeOffset(2026, 9, day, 12, 0, index % 60, TimeSpan.Zero), Kind = "Kill",
+        PlayerId = 0x10000001, TargetId = 0x10000002, KillerId = 0x10000001, TargetName = "Opponent " + index, ActionName = "Attack"
+    };
+    private static void HistoryWriterTests()
+    {
+        var folder = Path.Combine(artifacts, "batch " + Guid.NewGuid().ToString("N"));
+        var store = new HistoryStore(folder); var input = Enumerable.Range(0, 10).Select(i => History(i)).ToList();
+        var result = store.AppendBatch(input); var file = Directory.GetFiles(folder, "*.jsonl").Single();
+        Check(result.WriteOperations == 1 && result.BytesWritten == new FileInfo(file).Length, "one file write for a day batch; byte count measured");
+
+        var ambiguousFolder = Path.Combine(artifacts, "ambiguous " + Guid.NewGuid().ToString("N"));
+        var ambiguousStore = new HistoryStore(ambiguousFolder); var ambiguousCalls = 0;
+        using (var writer = new HistoryWriter(batch =>
+        {
+            var saved = ambiguousStore.AppendBatch(batch);
+            if (Interlocked.Increment(ref ambiguousCalls) == 1) throw new IOException("simulated unknown append result");
+            return saved;
+        }, null, 32, 32, 3, _ => 0, false))
+        {
+            foreach (var entry in input) Check(writer.Enqueue(entry), "bounded writer accepts within capacity");
+            Check(writer.StopAndFlush(), "ambiguous append eventually flushes");
+        }
+        var recovered = new HistoryStore(ambiguousFolder).LoadRecent(100);
+        Check(ambiguousCalls == 2 && recovered.Count == input.Count && recovered.Select(x => x.Id).Distinct().Count() == input.Count, "unknown append outcome reconciles without duplicates");
+
+        var calls = new List<int>(); var persisted = 0;
+        using (var writer = new HistoryWriter(batch => { lock (calls) calls.Add(batch.Count); return new HistoryWriteResult { WriteOperations = 1, BytesWritten = batch.Count * 20 }; }, batch => Interlocked.Add(ref persisted, batch.Count), 256, 64, 3, _ => 0, false))
+        {
+            for (var i = 0; i < 130; i++) Check(writer.Enqueue(History(100 + i)), "bounded writer accepts synthetic event");
+            Check(writer.StopAndFlush(), "shutdown waits for writer flush");
+            Check(writer.PendingCount == 0 && persisted == 130 && writer.WriteOperations == 3 && writer.BytesWritten == 2600, "batches bound writes and account logical bytes");
+        }
+        lock (calls) Check(calls.SequenceEqual(new[] { 64, 64, 2 }), "batch size stays bounded");
+
+        using (var bounded = new HistoryWriter(_ => new HistoryWriteResult(), null, 2, 2, 2, _ => 0, false))
+        {
+            Check(bounded.Enqueue(History(400)) && bounded.Enqueue(History(401)), "bounded capacity fills");
+            Check(!bounded.Enqueue(History(402)) && bounded.PendingCount == 2, "overflow is rejected without queue growth");
+            Check(bounded.StopAndFlush() && bounded.PendingCount == 0, "bounded queue drains on shutdown");
+        }
+
+        var attempts = 0;
+        using (var writer = new HistoryWriter(_ => { Interlocked.Increment(ref attempts); throw new IOException("persistent failure"); }, null, 8, 8, 3, _ => 0, true))
+        {
+            Check(writer.Enqueue(History(500)), "failed batch queued");
+            SpinWait.SpinUntil(() => writer.IsFaulted, 3000);
+            Check(writer.IsFaulted && writer.PendingCount == 1 && attempts == 3, "consecutive retries are bounded and data remains pending");
+            Check(!writer.StopAndFlush() && attempts == 6 && writer.PendingCount == 1, "shutdown flush makes one bounded final retry series");
+        }
+
+        using (var entered = new ManualResetEvent(false))
+        using (var release = new ManualResetEvent(false))
+        using (var writer = new HistoryWriter(batch => { entered.Set(); release.WaitOne(); return new HistoryWriteResult(); }, null, 4, 4, 2, _ => 0, true))
+        {
+            Check(writer.Enqueue(History(600)) && entered.WaitOne(3000), "writer enters active append");
+            var stop = Task.Run(() => writer.StopAndFlush()); Thread.Sleep(30);
+            Check(!stop.IsCompleted, "shutdown waits while append is active"); release.Set();
+            Check(stop.GetAwaiter().GetResult() && writer.PendingCount == 0, "shutdown returns after active append completes");
+        }
+
+        var partialFolder = Path.Combine(artifacts, "partial " + Guid.NewGuid().ToString("N")); var partialStore = new HistoryStore(partialFolder);
+        partialStore.Append(History(700)); var partialFile = Directory.GetFiles(partialFolder, "*.jsonl").Single(); File.AppendAllText(partialFile, "{broken");
+        partialStore.Append(History(701)); Check(partialStore.LoadRecent(10).Count == 2, "partial trailing JSON line repaired before append");
     }
     private static void Languages()
     {
