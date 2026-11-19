@@ -20,6 +20,8 @@ namespace PvPChronicle
         public int MaximumLines { get; set; } = 6;
         public int OpacityPercent { get; set; } = 96;
         public int FontSize { get; set; } = 16;
+        internal string HostedLanguage { get; set; }
+        internal string EffectiveLanguage => HostedLanguage ?? Language;
         public string Language { get; set; }
         public bool CheckUpdatesOnStartup { get; set; } = true;
         public string SkippedVersion { get; set; } = string.Empty;

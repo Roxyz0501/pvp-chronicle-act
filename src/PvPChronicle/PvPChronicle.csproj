@@ -5,7 +5,7 @@
     <LangVersion>7.3</LangVersion>
     <AssemblyName>PvPChronicle</AssemblyName>
     <RootNamespace>PvPChronicle</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <Authors>Roxyz0501</Authors>
     <Company>Roxyz0501</Company>
     <Product>PvP Chronicle for ACT</Product>
@@ -22,6 +22,6 @@
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\..\shared\PluginTabs.cs" Link="PluginTabs.cs" />
+    <Compile Include="..\..\shared\Plugin*.cs" Link="%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

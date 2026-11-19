@@ -46,19 +46,27 @@ namespace PvPChronicle
             status = pluginStatusText; page = pluginScreenSpace; settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Advanced Combat Tracker", "Config", "PvPChronicle.xml");
             settings = PluginSettings.Load(settingsPath); settings.InitializeLanguageIfMissing(CultureInfo.CurrentUICulture); settings.Normalize();
             settingsPersistence = new SettingsPersistence(settings, settingsPath);
-            control = new SettingsControl(settings); control.SettingsChanged += SettingsChanged; control.CheckUpdatesRequested += CheckUpdatesClicked; control.InstallUpdateRequested += InstallUpdate; control.LaterRequested += Later; page.Controls.Add(control); page.Text = Localization.Get(settings.Language, "PluginTab");
+            control = new SettingsControl(settings); control.SettingsChanged += SettingsChanged; control.CheckUpdatesRequested += CheckUpdatesClicked; control.InstallUpdateRequested += InstallUpdate; control.LaterRequested += Later; page.Controls.Add(control); page.Text = Localization.Get(settings.EffectiveLanguage, "PluginTab");
             store = new HistoryStore(HistoryDirectory);
-            try { history.AddRange(store.LoadRecent(1000)); } catch (Exception ex) { status.Text = Localization.Get(settings.Language, "LoadError", ex.Message); }
+            try { history.AddRange(store.LoadRecent(1000)); } catch (Exception ex) { status.Text = Localization.Get(settings.EffectiveLanguage, "LoadError", ex.Message); }
             historyWriter = new HistoryWriter(store, PersistedBatch);
             overlay = new OverlayForm(settings); overlay.ApplySettings(settings, true);
-            control.OpenHistoryRequested += delegate { try { Directory.CreateDirectory(HistoryDirectory); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(HistoryDirectory) { UseShellExecute = true }); } catch (Exception ex) { status.Text = Localization.Get(settings.Language, "FolderError", ex.Message); } };
+            control.OpenHistoryRequested += delegate { try { Directory.CreateDirectory(HistoryDirectory); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(HistoryDirectory) { UseShellExecute = true }); } catch (Exception ex) { status.Text = Localization.Get(settings.EffectiveLanguage, "FolderError", ex.Message); } };
             tracker.AssistWindowSeconds = settings.AssistWindowSeconds;
             tracker.RecordAssists = settings.RecordAssists;
             tracker.Recorded += Recorded; ActGlobals.oFormActMain.OnLogLineRead += LogLineRead;
             BootstrapPlayer(); RefreshHistory(); pump.Tick += Pump; pump.Start();
-            if (string.IsNullOrEmpty(status.Text)) status.Text = Localization.Get(settings.Language, tracker.PlayerId == 0 ? "Waiting" : "Started");
+            if (string.IsNullOrEmpty(status.Text)) status.Text = Localization.Get(settings.EffectiveLanguage, tracker.PlayerId == 0 ? "Waiting" : "Started");
             settingsTimer.Tick += SettingsTimerTick; settingsTimer.Start();
             if (settings.CheckUpdatesOnStartup) TrackUpdateTask(CheckForUpdatesAsync(false));
+        }
+        public void SetHostedLanguage(string code)
+        {
+            if (control == null || control.IsDisposed) return;
+            control.SetHostedLanguage(code);
+            overlay.ApplySettings(settings);
+            page.Text = Localization.Get(settings.EffectiveLanguage, "PluginTab");
+            status.Text = Localization.Get(settings.EffectiveLanguage, tracker.PlayerId == 0 ? "Waiting" : "Started");
         }
         public static string HistoryDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Advanced Combat Tracker", "PvPChronicle", "History");
         private void LogLineRead(bool isImport, LogLineEventArgs info)
@@ -86,7 +94,7 @@ namespace PvPChronicle
             }
             Interlocked.Exchange(ref historyChanged, 1);
         }
-        private void SettingsChanged(object sender, EventArgs e) { control.ApplyTo(settings); tracker.AssistWindowSeconds = settings.AssistWindowSeconds; tracker.RecordAssists = settings.RecordAssists; overlay.ApplySettings(settings); RefreshHistory(); page.Text = Localization.Get(settings.Language, "PluginTab"); }
+        private void SettingsChanged(object sender, EventArgs e) { control.ApplyTo(settings); tracker.AssistWindowSeconds = settings.AssistWindowSeconds; tracker.RecordAssists = settings.RecordAssists; overlay.ApplySettings(settings); RefreshHistory(); page.Text = Localization.Get(settings.EffectiveLanguage, "PluginTab"); }
         private void CheckUpdatesClicked(object sender, EventArgs e) => TrackUpdateTask(CheckForUpdatesAsync(true));
         private void RefreshHistory()
         {
@@ -99,7 +107,7 @@ namespace PvPChronicle
         {
             ApplyPendingUpdateResult();
             if (++bootstrapTicks >= 8) { bootstrapTicks = 0; BootstrapPlayer(); }
-            if (displayedPlayer != tracker.PlayerId) { RefreshHistory(); status.Text = Localization.Get(settings.Language, tracker.PlayerId == 0 ? "Waiting" : "Started"); }
+            if (displayedPlayer != tracker.PlayerId) { RefreshHistory(); status.Text = Localization.Get(settings.EffectiveLanguage, tracker.PlayerId == 0 ? "Waiting" : "Started"); }
             if (Interlocked.Exchange(ref historyChanged, 0) != 0) RefreshHistory();
             RefreshHistoryStatus();
             overlay.SetStats(stats.Snapshot());
@@ -109,14 +117,14 @@ namespace PvPChronicle
             var rejected = Interlocked.Exchange(ref rejectedHistoryEntries, 0);
             var error = historyWriter.LastError;
             var message = rejected > 0
-                ? Localization.Get(settings.Language, "HistoryQueueFull", rejected)
-                : error == null ? null : Localization.Get(settings.Language, "HistoryError", error.GetBaseException().Message);
+                ? Localization.Get(settings.EffectiveLanguage, "HistoryQueueFull", rejected)
+                : error == null ? null : Localization.Get(settings.EffectiveLanguage, "HistoryError", error.GetBaseException().Message);
             if (message != null) { if (!string.Equals(status.Text, message, StringComparison.Ordinal)) status.Text = message; lastHistoryStatus = message; }
             else if (lastHistoryStatus != null && string.Equals(status.Text, lastHistoryStatus, StringComparison.Ordinal))
-            { status.Text = Localization.Get(settings.Language, tracker.PlayerId == 0 ? "Waiting" : "Started"); lastHistoryStatus = null; }
+            { status.Text = Localization.Get(settings.EffectiveLanguage, tracker.PlayerId == 0 ? "Waiting" : "Started"); lastHistoryStatus = null; }
         }
         private void SettingsTimerTick(object sender, EventArgs e) => SaveSettingsIfChanged();
-        private bool SaveSettingsIfChanged() { try { settingsPersistence?.SaveIfChanged(); return true; } catch (Exception ex) { if (status != null) status.Text = Localization.Get(settings == null ? "en" : settings.Language, "SaveError", ex.Message); return false; } }
+        private bool SaveSettingsIfChanged() { try { settingsPersistence?.SaveIfChanged(); return true; } catch (Exception ex) { if (status != null) status.Text = Localization.Get(settings == null ? "en" : settings.EffectiveLanguage, "SaveError", ex.Message); return false; } }
         private void BootstrapPlayer()
         {
             try
@@ -167,10 +175,10 @@ namespace PvPChronicle
                     if (result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null)
                     {
                         control.FocusUpdateTab();
-                        status.Text = Localization.Get(settings.Language, result.ApiRateLimited ? "RateLimitedUpdateAvailable" : "UpdateAvailable", current.ToString(3), result.Release.Version);
+                        status.Text = Localization.Get(settings.EffectiveLanguage, result.ApiRateLimited ? "RateLimitedUpdateAvailable" : "UpdateAvailable", current.ToString(3), result.Release.Version);
                     }
-                    else if (result.Status == UpdateCheckStatus.RateLimited) status.Text = Localization.Get(settings.Language, "RateLimited");
-                    else if (result.Status == UpdateCheckStatus.Failed) status.Text = Localization.Get(settings.Language, "UpdateConnectionFailed");
+                    else if (result.Status == UpdateCheckStatus.RateLimited) status.Text = Localization.Get(settings.EffectiveLanguage, "RateLimited");
+                    else if (result.Status == UpdateCheckStatus.Failed) status.Text = Localization.Get(settings.EffectiveLanguage, "UpdateConnectionFailed");
                 }
             }
             if (prepared != null)
@@ -179,18 +187,18 @@ namespace PvPChronicle
                 {
                     var target = ResolvePluginDllPath(ActGlobals.oFormActMain == null ? null : ActGlobals.oFormActMain.ActPlugins, this, Assembly.GetExecutingAssembly().Location);
                     updateService.LaunchUpdater(prepared, target);
-                    control.SetUpdateText("Prepared"); status.Text = Localization.Get(settings.Language, "Prepared");
+                    control.SetUpdateText("Prepared"); status.Text = Localization.Get(settings.EffectiveLanguage, "Prepared");
                 }
                 catch (Exception ex)
                 {
                     var message = LocalizeUpdateError(ex.GetBaseException().Message);
-                    control.SetUpdateText("UpdateFailed", message); status.Text = Localization.Get(settings.Language, "UpdateFailed", message);
+                    control.SetUpdateText("UpdateFailed", message); status.Text = Localization.Get(settings.EffectiveLanguage, "UpdateFailed", message);
                 }
             }
             else if (!string.IsNullOrWhiteSpace(preparationError))
             {
                 var message = LocalizeUpdateError(preparationError);
-                control.SetUpdateText("UpdateFailed", message); status.Text = Localization.Get(settings.Language, "UpdateFailed", message);
+                control.SetUpdateText("UpdateFailed", message); status.Text = Localization.Get(settings.EffectiveLanguage, "UpdateFailed", message);
             }
         }
         private void InstallUpdate(object sender, EventArgs e) => TrackUpdateTask(PrepareUpdateAsync());
@@ -246,13 +254,13 @@ namespace PvPChronicle
         {
             switch (code)
             {
-                case "UpdateAssetMissing": return Localization.Get(settings.Language, "UpdateAssetMissing");
-                case "RateLimited": return Localization.Get(settings.Language, "RateLimited");
-                case "UpdateConnectionFailed": return Localization.Get(settings.Language, "UpdateConnectionFailed");
-                case "PluginPathUnavailable": return Localization.Get(settings.Language, "PluginPathUnavailable");
-                case "HashFailed": return Localization.Get(settings.Language, "HashFailed");
+                case "UpdateAssetMissing": return Localization.Get(settings.EffectiveLanguage, "UpdateAssetMissing");
+                case "RateLimited": return Localization.Get(settings.EffectiveLanguage, "RateLimited");
+                case "UpdateConnectionFailed": return Localization.Get(settings.EffectiveLanguage, "UpdateConnectionFailed");
+                case "PluginPathUnavailable": return Localization.Get(settings.EffectiveLanguage, "PluginPathUnavailable");
+                case "HashFailed": return Localization.Get(settings.EffectiveLanguage, "HashFailed");
                 case "InvalidPackage": case "InvalidLatestReleaseRedirect": case "InvalidLatestReleaseTag": case "ReleaseTagMismatch":
-                    return Localization.Get(settings.Language, "InvalidPackage");
+                    return Localization.Get(settings.EffectiveLanguage, "InvalidPackage");
                 default: return code;
             }
         }
@@ -274,8 +282,8 @@ namespace PvPChronicle
             var unsavedHistory = historyWriter.PendingCount;
             historyWriter.Dispose();
             overlay?.Close(); overlay?.Dispose(); control?.Dispose(); updateService.Dispose(); updateCancellation.Dispose();
-            if (status != null && !historyFlushed) status.Text = Localization.Get(settings == null ? "en" : settings.Language, "HistoryShutdownFailure", unsavedHistory, historyWriter.LastError?.GetBaseException().Message ?? "unknown error");
-            else if (status != null && settingsSaved) status.Text = Localization.Get(settings == null ? "en" : settings.Language, "Stopped");
+            if (status != null && !historyFlushed) status.Text = Localization.Get(settings == null ? "en" : settings.EffectiveLanguage, "HistoryShutdownFailure", unsavedHistory, historyWriter.LastError?.GetBaseException().Message ?? "unknown error");
+            else if (status != null && settingsSaved) status.Text = Localization.Get(settings == null ? "en" : settings.EffectiveLanguage, "Stopped");
         }
     }
 }

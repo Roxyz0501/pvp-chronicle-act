@@ -81,9 +81,9 @@ namespace PvPChronicle
         {
             base.OnPaint(e);
             var g = e.Graphics;
-            using (var title = new Font(Localization.FontFamily(settings.Language), 11, FontStyle.Bold))
-            using (var text = new Font(Localization.FontFamily(settings.Language), settings.FontSize))
-            using (var small = new Font(Localization.FontFamily(settings.Language), 9))
+            using (var title = new Font(Localization.FontFamily(settings.EffectiveLanguage), 11, FontStyle.Bold))
+            using (var text = new Font(Localization.FontFamily(settings.EffectiveLanguage), settings.FontSize))
+            using (var small = new Font(Localization.FontFamily(settings.EffectiveLanguage), 9))
             using (var gold = new Pen(Color.FromArgb(202, 165, 87), 2))
             {
                 Draw(g, "PvP Chronicle", title, new Rectangle(12, 5, Width - 24, 26), Color.White);
@@ -92,22 +92,22 @@ namespace PvPChronicle
                 var totals = new[] { stats.Kills, stats.DamageDealt, stats.DamageTaken };
                 for (var i = 0; i < 3; i++)
                 {
-                    Draw(g, Localization.Get(settings.Language, labels[i]), small, new Rectangle(12 + i * columnWidth, 34, columnWidth - 6, 20), Color.FromArgb(189, 201, 211));
+                    Draw(g, Localization.Get(settings.EffectiveLanguage, labels[i]), small, new Rectangle(12 + i * columnWidth, 34, columnWidth - 6, 20), Color.FromArgb(189, 201, 211));
                     Draw(g, totals[i].ToString("N0"), title, new Rectangle(12 + i * columnWidth, 56, columnWidth - 6, 26), Color.White);
                 }
                 g.DrawLine(gold, 12, 86, Width - 12, 86);
                 var visible = entries.Take(settings.MaximumLines).ToList();
                 if (settings.Preview && visible.Count == 0)
-                    visible.Add(new HistoryEntry { Timestamp = DateTimeOffset.Now, Kind = settings.RecordAssists ? "EstimatedAssist" : "Kill", TargetName = Localization.Get(settings.Language, "PreviewTarget"), ActionName = Localization.Get(settings.Language, "PreviewAction") });
+                    visible.Add(new HistoryEntry { Timestamp = DateTimeOffset.Now, Kind = settings.RecordAssists ? "EstimatedAssist" : "Kill", TargetName = Localization.Get(settings.EffectiveLanguage, "PreviewTarget"), ActionName = Localization.Get(settings.EffectiveLanguage, "PreviewAction") });
                 int y = 94, rowHeight = text.Height + small.Height + 12;
                 foreach (var entry in visible.Skip(scroll))
                 {
                     if (y + rowHeight > Height - 24) break;
                     var color = entry.Kind == "Kill" ? Color.FromArgb(117, 221, 170) : Color.FromArgb(242, 196, 105);
-                    Draw(g, entry.Timestamp.ToLocalTime().ToString("HH:mm:ss") + "  " + Localization.Get(settings.Language, entry.Kind), small, new Rectangle(12, y, Width - 24, small.Height + 2), color);
+                    Draw(g, entry.Timestamp.ToLocalTime().ToString("HH:mm:ss") + "  " + Localization.Get(settings.EffectiveLanguage, entry.Kind), small, new Rectangle(12, y, Width - 24, small.Height + 2), color);
                     var split = (int)((Width - 24) * .44);
                     Draw(g, entry.TargetName, text, new Rectangle(12, y + small.Height + 2, split - 8, text.Height + 2), Color.White);
-                    Draw(g, string.IsNullOrWhiteSpace(entry.ActionName) ? Localization.Get(settings.Language, "Unknown") : entry.ActionName, text,
+                    Draw(g, string.IsNullOrWhiteSpace(entry.ActionName) ? Localization.Get(settings.EffectiveLanguage, "Unknown") : entry.ActionName, text,
                         new Rectangle(12 + split, y + small.Height + 2, Width - 24 - split, text.Height + 2), Color.FromArgb(189, 201, 211));
                     y += rowHeight;
                 }

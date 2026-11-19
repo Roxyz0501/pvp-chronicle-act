@@ -302,13 +302,21 @@ internal static class Program
         using (var control = new SettingsControl(new PluginSettings { Language = lang, CheckUpdatesOnStartup = false }))
         {
             form.Controls.Add(control); form.Show(); Application.DoEvents();
-            var tabs = FindTabs(control); Check(tabs.TabCount == 4, "all tabs " + lang);
+            var tabs = FindTabs(control); Check(tabs.TabCount == 5, "all tabs " + lang);
             for (int i = 0; i < tabs.TabCount; i++)
             {
                 tabs.SelectedIndex = i; Application.DoEvents();
                 using (var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height)) { control.DrawToBitmap(bitmap, control.ClientRectangle); bitmap.Save(Path.Combine(artifacts, "settings-" + lang + "-" + i + ".png")); }
             }
-            form.ClientSize = new Size(420, 560); Application.DoEvents(); Check(control.Width <= 420, "narrow pane"); form.Close();
+            form.ClientSize = new Size(420, 560); Application.DoEvents(); Check(control.Width <= 420, "narrow pane"); tabs.SelectedIndex = 3;
+            using (var image = new Bitmap(control.Width, control.Height)) control.DrawToBitmap(image, control.ClientRectangle);
+            var support = tabs.TabPages[4];
+            ((Roxyz.Act.UI.PluginTabs)tabs).AddContentPage(new TabPage("extra"));
+            Check(tabs.TabPages[5] == support, "support stays last");
+            foreach (var code in new[] { "ja", "ja", "ko", "zh-CN", "en", "ja" }) control.SetHostedLanguage(code);
+            var saved = new PluginSettings { Language = lang }; control.ApplyTo(saved);
+            Check(saved.Language == lang && tabs.TabCount == 3, "host language leaves standalone settings intact");
+            form.Close();
         }
     }
     private static TabControl FindTabs(Control root) { foreach (Control c in root.Controls) { if (c is TabControl) return (TabControl)c; var found = FindTabs(c); if (found != null) return found; } return null; }
