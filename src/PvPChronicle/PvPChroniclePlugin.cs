@@ -22,8 +22,11 @@ namespace PvPChronicle
         private readonly List<Task> updateTasks = new List<Task>();
         private UpdateCheckResult lastUpdateResult;
         private UpdateCheckResult pendingUpdateResult;
+        private PreparedUpdate pendingPreparedUpdate;
+        private string pendingUpdatePreparationError;
         private bool pendingUpdateManual;
         private bool updateCheckRunning;
+        private bool updatePreparationRunning;
         private bool stopped, acceptingLogs = true;
         private int activeLogCallbacks;
         private readonly object historyGate = new object();
@@ -143,31 +146,73 @@ namespace PvPChronicle
         }
         private void ApplyPendingUpdateResult()
         {
-            UpdateCheckResult result; bool manual;
-            lock (updateGate) { result = pendingUpdateResult; manual = pendingUpdateManual; pendingUpdateResult = null; }
-            if (result == null || stopped || control == null || control.IsDisposed) return;
-            updateCheckRunning = false; lastUpdateResult = result;
-            var current = Assembly.GetExecutingAssembly().GetName().Version;
-            if (!manual && result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null &&
-                string.Equals(settings.SkippedVersion, result.Release.Version.ToString(), StringComparison.OrdinalIgnoreCase))
-            { control.ShowUpdateResult(result, current); control.ShowUpdateSkipped(result.Release.Version.ToString()); }
-            else
+            UpdateCheckResult result; bool manual; PreparedUpdate prepared; string preparationError;
+            lock (updateGate)
             {
-                control.ShowUpdateResult(result, current);
-                if (result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null)
+                result = pendingUpdateResult; manual = pendingUpdateManual; pendingUpdateResult = null;
+                prepared = pendingPreparedUpdate; pendingPreparedUpdate = null;
+                preparationError = pendingUpdatePreparationError; pendingUpdatePreparationError = null;
+            }
+            if (stopped || control == null || control.IsDisposed) return;
+            if (result != null)
+            {
+                updateCheckRunning = false; lastUpdateResult = result;
+                var current = Assembly.GetExecutingAssembly().GetName().Version;
+                if (!manual && result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null &&
+                    string.Equals(settings.SkippedVersion, result.Release.Version.ToString(), StringComparison.OrdinalIgnoreCase))
+                { control.ShowUpdateResult(result, current); control.ShowUpdateSkipped(result.Release.Version.ToString()); }
+                else
                 {
-                    control.FocusUpdateTab(); status.Text = Localization.Get(settings.Language, "UpdateAvailable", current.ToString(3), result.Release.Version);
+                    control.ShowUpdateResult(result, current);
+                    if (result.Status == UpdateCheckStatus.UpdateAvailable && result.Release != null)
+                    {
+                        control.FocusUpdateTab();
+                        status.Text = Localization.Get(settings.Language, result.ApiRateLimited ? "RateLimitedUpdateAvailable" : "UpdateAvailable", current.ToString(3), result.Release.Version);
+                    }
+                    else if (result.Status == UpdateCheckStatus.RateLimited) status.Text = Localization.Get(settings.Language, "RateLimited");
+                    else if (result.Status == UpdateCheckStatus.Failed) status.Text = Localization.Get(settings.Language, "UpdateConnectionFailed");
                 }
+            }
+            if (prepared != null)
+            {
+                try
+                {
+                    var target = ResolvePluginDllPath(ActGlobals.oFormActMain == null ? null : ActGlobals.oFormActMain.ActPlugins, this, Assembly.GetExecutingAssembly().Location);
+                    updateService.LaunchUpdater(prepared, target);
+                    control.SetUpdateText("Prepared"); status.Text = Localization.Get(settings.Language, "Prepared");
+                }
+                catch (Exception ex)
+                {
+                    var message = LocalizeUpdateError(ex.GetBaseException().Message);
+                    control.SetUpdateText("UpdateFailed", message); status.Text = Localization.Get(settings.Language, "UpdateFailed", message);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(preparationError))
+            {
+                var message = LocalizeUpdateError(preparationError);
+                control.SetUpdateText("UpdateFailed", message); status.Text = Localization.Get(settings.Language, "UpdateFailed", message);
             }
         }
         private void InstallUpdate(object sender, EventArgs e) => TrackUpdateTask(PrepareUpdateAsync());
-        private Task PrepareUpdateAsync()
+        private async Task PrepareUpdateAsync()
         {
             var release = lastUpdateResult == null ? null : lastUpdateResult.Release;
-            if (stopped || release == null || lastUpdateResult.Status != UpdateCheckStatus.UpdateAvailable) return Task.CompletedTask;
-            var message = Localization.Get(settings.Language, "ManualUpdateOnly");
-            control.SetUpdateText("UpdateFailed", message); status.Text = message;
-            return Task.CompletedTask;
+            if (stopped || updatePreparationRunning || release == null || lastUpdateResult.Status != UpdateCheckStatus.UpdateAvailable) return;
+            updatePreparationRunning = true; control.SetUpdateText("Preparing");
+            try
+            {
+                var prepared = await updateService.DownloadAndVerifyAsync(release, updateCancellation.Token).ConfigureAwait(false);
+                if (stopped || updateCancellation.IsCancellationRequested) return;
+                lock (updateGate) pendingPreparedUpdate = prepared;
+            }
+            catch (Exception ex)
+            {
+                if (stopped || updateCancellation.IsCancellationRequested) return;
+                var root = ex.GetBaseException();
+                var code = root is UpdateRateLimitException ? "RateLimited" : root is System.Net.Http.HttpRequestException || root is TaskCanceledException ? "UpdateConnectionFailed" : root.Message;
+                lock (updateGate) pendingUpdatePreparationError = code;
+            }
+            finally { updatePreparationRunning = false; }
         }
         private void TrackUpdateTask(Task task) { lock (updateGate) { updateTasks.RemoveAll(x => x.IsCompleted); updateTasks.Add(task); } }
         internal static string ResolvePluginDllPath(IEnumerable<ActPluginData> plugins, IActPluginV1 instance, string assemblyLocation)
@@ -176,9 +221,40 @@ namespace PvPChronicle
             {
                 foreach (var plugin in plugins)
                     if (plugin != null && ReferenceEquals(plugin.pluginObj, instance) && plugin.pluginFile != null && !string.IsNullOrWhiteSpace(plugin.pluginFile.FullName))
-                        return Path.GetFullPath(plugin.pluginFile.FullName);
+                        return NormalizeRegisteredPluginPath(plugin.pluginFile.FullName);
             }
             throw new InvalidOperationException("PluginPathUnavailable");
+        }
+        internal static string NormalizeRegisteredPluginPath(string registeredPath)
+        {
+            if (string.IsNullOrWhiteSpace(registeredPath)) throw new InvalidOperationException("PluginPathUnavailable");
+            var value = registeredPath.Trim(); Uri uri;
+            if (Uri.TryCreate(value, UriKind.Absolute, out uri) && string.Equals(uri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!uri.IsFile || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) || !string.IsNullOrEmpty(uri.UserInfo))
+                    throw new InvalidOperationException("PluginPathUnavailable");
+                value = uri.LocalPath;
+            }
+            else if (value.StartsWith("file:", StringComparison.OrdinalIgnoreCase) || value.Contains("://"))
+                throw new InvalidOperationException("PluginPathUnavailable");
+            var fullPath = Path.GetFullPath(value);
+            if (!string.Equals(Path.GetFileName(fullPath), UpdateConfiguration.PluginFileName, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("PluginPathUnavailable");
+            return fullPath;
+        }
+        private string LocalizeUpdateError(string code)
+        {
+            switch (code)
+            {
+                case "UpdateAssetMissing": return Localization.Get(settings.Language, "UpdateAssetMissing");
+                case "RateLimited": return Localization.Get(settings.Language, "RateLimited");
+                case "UpdateConnectionFailed": return Localization.Get(settings.Language, "UpdateConnectionFailed");
+                case "PluginPathUnavailable": return Localization.Get(settings.Language, "PluginPathUnavailable");
+                case "HashFailed": return Localization.Get(settings.Language, "HashFailed");
+                case "InvalidPackage": case "InvalidLatestReleaseRedirect": case "InvalidLatestReleaseTag": case "ReleaseTagMismatch":
+                    return Localization.Get(settings.Language, "InvalidPackage");
+                default: return code;
+            }
         }
         private void Later(object sender, EventArgs e) { var release = lastUpdateResult == null ? null : lastUpdateResult.Release; if (release == null) return; settings.SkippedVersion = release.Version.ToString(); control.ShowUpdateSkipped(settings.SkippedVersion); }
         public void DeInitPlugin()

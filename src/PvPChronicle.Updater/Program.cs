@@ -20,13 +20,15 @@ namespace PvPChronicle.Updater
                 var source = Path.GetFullPath(Required(values, "--source"));
                 var target = Path.GetFullPath(Required(values, "--target"));
                 var expectedHash = Required(values, "--sha256");
+                var originalHash = Required(values, "--original");
                 var version = Required(values, "--version");
                 ValidatePaths(source, target);
-                if (!string.Equals(Hash(source), expectedHash, StringComparison.OrdinalIgnoreCase))
+                if (!IsHash(expectedHash) || !IsHash(originalHash) || !string.Equals(Hash(source), expectedHash, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("Staged DLL hash mismatch.");
                 var assembly = System.Reflection.AssemblyName.GetAssemblyName(source);
                 if (assembly.Name != "PvPChronicle" || assembly.Version.ToString(3) != version || FileVersionInfo.GetVersionInfo(source).CompanyName != "Roxyz0501") throw new InvalidDataException("InvalidPackage");
                 WaitForExit(processId);
+                VerifyOriginal(target, originalHash);
                 ReplaceWithBackup(source, target, expectedHash, version);
                 return 0;
             }
@@ -103,6 +105,13 @@ namespace PvPChronicle.Updater
             catch (ArgumentException) { }
         }
 
+        internal static void VerifyOriginal(string target, string expectedHash)
+        {
+            if (string.IsNullOrWhiteSpace(expectedHash) || !File.Exists(target) ||
+                !string.Equals(Hash(target), expectedHash, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Installed DLL changed since update was requested.");
+        }
+
         private static Dictionary<string, string> Parse(string[] args)
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -122,6 +131,13 @@ namespace PvPChronicle.Updater
             using (var stream = File.OpenRead(path))
             using (var sha = SHA256.Create())
                 return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+        }
+
+        private static bool IsHash(string value)
+        {
+            if (value == null || value.Length != 64) return false;
+            foreach (var c in value) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return false;
+            return true;
         }
     }
 }

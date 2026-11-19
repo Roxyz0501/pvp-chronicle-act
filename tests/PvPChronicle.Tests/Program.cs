@@ -29,7 +29,8 @@ internal static class Program
                     var result = service.CheckAsync(new Version(0, 0, 0), CancellationToken.None).GetAwaiter().GetResult();
                     Check(result.Status == UpdateCheckStatus.UpdateAvailable, "live release available");
                     var prepared = service.DownloadAndVerifyAsync(result.Release, CancellationToken.None).GetAwaiter().GetResult();
-                    Check(File.Exists(prepared.StagedDllPath) && File.Exists(prepared.StagedUpdaterPath), "live package verified");
+                    Check(File.Exists(prepared.StagedDllPath) && File.Exists(prepared.StagedUpdaterPath) &&
+                        UpdatePackageVerifier.VerifySha256(prepared.StagedUpdaterPath, prepared.UpdaterSha256), "live package and updater verified");
                 }
             }
             Console.WriteLine("PASS: " + assertions + " assertions"); return 0;
@@ -215,7 +216,10 @@ internal static class Program
         Check(Localization.MapCulture(new CultureInfo("ja-JP")) == "ja", "Japanese OS"); Check(Localization.MapCulture(new CultureInfo("zh-TW")) == "zh-CN", "Chinese OS");
         Check(Localization.MapCulture(new CultureInfo("ko-KR")) == "ko", "Korean OS"); Check(Localization.MapCulture(new CultureInfo("fr-FR")) == "en", "English fallback");
         var s = new PluginSettings(); Check(s.InitializeLanguageIfMissing(new CultureInfo("ja-JP")), "initial language"); Check(!s.InitializeLanguageIfMissing(new CultureInfo("ko-KR")) && s.Language == "ja", "retains user language");
-        foreach (var language in new[] { "en", "ja", "zh-CN", "ko" }) foreach (var key in new[] { "EstimatedAssist", "LastAction", "HistoryError", "UpdateTitle", "SupportBody", "Waiting" }) Check(Localization.Get(language, key, "test") != key, language + " " + key);
+        foreach (var language in new[] { "en", "ja", "zh-CN", "ko" }) foreach (var key in new[] { "EstimatedAssist", "LastAction", "HistoryError", "UpdateTitle", "SupportBody", "Waiting", "RateLimited", "UpdateConnectionFailed", "Prepared", "PluginPathUnavailable" }) Check(Localization.Get(language, key, "test") != key, language + " " + key);
+        Check(Localization.Get("en", "Author") == "Author" && Localization.Get("ja", "Author") != "Author" && Localization.Get("zh-CN", "Author") != "Author" && Localization.Get("ko", "Author") != "Author", "author label localized");
+        foreach (var language in new[] { "en", "ja", "zh-CN", "ko" })
+            Check(Localization.Get(language, "RateLimitedUpdateAvailable", "1.3.2", "1.4.0").Contains("1.4.0"), language + " rate-limited update notice");
         string error; bool called = false;
         Check(SettingsControl.TryOpenSupportLink(info => { called = true; Check(info.FileName == "https://ko-fi.com/roxyz0501" && info.UseShellExecute, "support URL"); return null; }, out error) && called, "support click");
         Check(!SettingsControl.TryOpenSupportLink(info => { throw new InvalidOperationException("test"); }, out error), "support failure contained");
@@ -228,6 +232,24 @@ internal static class Program
         var json = "[{\"tag_name\":\"v9.0.0\",\"draft\":false,\"prerelease\":true},{\"tag_name\":\"v1.1.0\",\"draft\":false,\"prerelease\":false}]";
         Check(UpdateService.EvaluateResponse(json, new Version(1, 0, 0)).Release.Version.ToString() == "1.1.0", "stable only");
         Check(UpdateService.CheckFromFetcherAsync(() => { throw new IOException("offline"); }, new Version(1, 0, 0)).GetAwaiter().GetResult().Status == UpdateCheckStatus.Failed, "network failure");
+        int apiCalls = 0;
+        var unchanged = UpdateService.CheckForTagAsync(() => Task.FromResult("v1.4.0"), tag => { apiCalls++; return Task.FromResult(new ReleaseApiResponse { StatusCode = 200, Body = "{}" }); }, new Version(1, 4, 0)).GetAwaiter().GetResult();
+        Check(unchanged.Status == UpdateCheckStatus.UpToDate && apiCalls == 0, "same version makes zero REST calls");
+        var limited = UpdateService.CheckForTagAsync(() => Task.FromResult("v1.4.0"), tag => { apiCalls++; return Task.FromResult(new ReleaseApiResponse { StatusCode = 403 }); }, new Version(1, 3, 2)).GetAwaiter().GetResult();
+        Check(limited.Status == UpdateCheckStatus.UpdateAvailable && limited.ApiRateLimited && apiCalls == 1, "403 falls back once to stable tag");
+        Check(limited.Release.Assets.Count == 2 && limited.Release.Assets[0].DownloadUrl == UpdateConfiguration.RepositoryUrl + "/releases/download/v1.4.0/PvPChronicle-v1.4.0.zip", "rate limit fallback pins official assets to tag");
+        var limited429 = UpdateService.CheckForTagAsync(() => Task.FromResult("v1.4.1"), tag => Task.FromResult(new ReleaseApiResponse { StatusCode = 429 }), new Version(1, 3, 2)).GetAwaiter().GetResult();
+        Check(limited429.Status == UpdateCheckStatus.UpdateAvailable && limited429.ApiRateLimited, "429 permits tagged update");
+        var malformedTag = UpdateService.CheckForTagAsync(() => Task.FromResult("v1.4.0-beta.1"), tag => { apiCalls++; return Task.FromResult(new ReleaseApiResponse { StatusCode = 200 }); }, new Version(1, 3, 2)).GetAwaiter().GetResult();
+        Check(malformedTag.Status == UpdateCheckStatus.NoStableRelease && apiCalls == 1, "prerelease tag does not call REST");
+        var mismatch = UpdateService.CheckForTagAsync(() => Task.FromResult("v1.4.0"), tag => Task.FromResult(new ReleaseApiResponse { StatusCode = 200, Body = "{\"tag_name\":\"v1.4.1\",\"draft\":false,\"prerelease\":false,\"assets\":[]}" }), new Version(1, 3, 2)).GetAwaiter().GetResult();
+        Check(mismatch.Status == UpdateCheckStatus.Failed, "REST tag must match resolved stable tag");
+        var disconnected = UpdateService.CheckForTagAsync(() => { throw new IOException("offline"); }, tag => Task.FromResult(new ReleaseApiResponse { StatusCode = 200 }), new Version(1, 3, 2)).GetAwaiter().GetResult();
+        Check(disconnected.Status == UpdateCheckStatus.Failed, "connection error differs from rate limit");
+        var latestUri = new Uri(UpdateConfiguration.RepositoryUrl + "/releases/tag/v1.4.0");
+        Check(UpdateService.ParseLatestStableTagUri(latestUri) == "v1.4.0", "latest redirect stable tag parsed");
+        Throws(() => UpdateService.ParseLatestStableTagUri(new Uri("https://github.com/other/repo/releases/tag/v1.4.0")), "latest redirect repository is pinned");
+        Throws(() => UpdateService.ValidateLatestRedirectHost(new Uri("https://github.com/other/repo/releases/latest")), "every redirect stays in target repository");
         Throws(() => UpdateService.EnsureAllowedUri(new Uri("http://github.com/x"), false), "HTTP rejected");
         Throws(() => UpdateService.EnsureAllowedUri(new Uri("https://evil.githubusercontent.com/x"), false), "arbitrary host rejected");
         Throws(() => UpdatePackageVerifier.SafeDestination(artifacts, "../outside"), "Zip Slip rejected");
@@ -240,8 +262,16 @@ internal static class Program
         var instance = new PvPChroniclePlugin(); var target = Path.Combine(artifacts, "日本語 space", "PvPChronicle.dll");
         var registration = new ActPluginData { pluginObj = instance, pluginFile = new FileInfo(target) };
         Check(PvPChroniclePlugin.ResolvePluginDllPath(new[] { registration }, instance, "shadow.dll") == target, "ACT registration priority");
+        Check(PvPChroniclePlugin.NormalizeRegisteredPluginPath(new Uri(target).AbsoluteUri) == target, "registered file URI with unicode and spaces normalized");
+        Throws(() => PvPChroniclePlugin.NormalizeRegisteredPluginPath(new Uri(target).AbsoluteUri + "?query"), "file URI query rejected");
         Throws(() => PvPChroniclePlugin.ResolvePluginDllPath(null, instance, dll), "missing ACT path stops update");
+        Throws(() => PvPChroniclePlugin.NormalizeRegisteredPluginPath("https://example.test/PvPChronicle.dll"), "remote URL rejected as install path");
+        SemVersion.TryParse("1.4.0", out var updateVersion);
+        var updaterArgs = UpdateService.BuildUpdaterArguments(new PreparedUpdate { StagedDllPath = Path.Combine(artifacts, "日本語 space", "PvPChronicle.dll"), DllSha256 = new string('a', 64), Release = new ReleaseInfo { Version = updateVersion } }, target, 123, new string('b', 64));
+        Check(updaterArgs.Contains("--original " + new string('b', 64)) && updaterArgs.Contains("\"" + Path.GetFullPath(target) + "\""), "updater args retain original hash and quote registered path");
         Directory.CreateDirectory(Path.GetDirectoryName(target)); File.WriteAllText(target, "previous");
+        var originalHash = UpdatePackageVerifier.ComputeSha256(target); PvPChronicle.Updater.Program.VerifyOriginal(target, originalHash);
+        File.WriteAllText(target, "changed"); Throws(() => PvPChronicle.Updater.Program.VerifyOriginal(target, originalHash), "changed target cancels delayed update"); File.WriteAllText(target, "previous");
         Throws(() => PvPChronicle.Updater.Program.ReplaceWithBackup(dll, target, hash, "1.0.0", (s, d) => { File.WriteAllText(d, "partial"); throw new IOException("failure"); }), "simulated copy failure");
         Check(File.ReadAllText(target) == "previous", "rollback restores original");
         PvPChronicle.Updater.Program.ReplaceWithBackup(dll, target, hash, "1.0.0"); Check(UpdatePackageVerifier.VerifySha256(target, hash), "successful replacement");

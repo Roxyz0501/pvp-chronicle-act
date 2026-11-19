@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Reflection;
 using System.Windows.Forms;
+using Roxyz.Act.UI;
 
 namespace PvPChronicle
 {
@@ -11,9 +12,9 @@ namespace PvPChronicle
         public const string SupportUrl = "https://ko-fi.com/roxyz0501";
         private readonly PluginSettings settings;
         private readonly Label headerTitle = L(), headerSubtitle = L();
-        private readonly TabControl tabs = new TabControl();
         private readonly TabPage settingsTab = new TabPage(), updateTab = new TabPage(), supportTab = new TabPage();
         private readonly TabPage historyTab = new TabPage();
+        private readonly PluginTabs tabs;
         private readonly DataGridView historyGrid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, AllowUserToDeleteRows = false, RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, BackgroundColor = Color.White, BorderStyle = BorderStyle.None, SelectionMode = DataGridViewSelectionMode.FullRowSelect };
         private readonly Button openHistory = new Button { AutoSize = true, Height = 32 };
         private System.Collections.Generic.List<HistoryEntry> history = new System.Collections.Generic.List<HistoryEntry>();
@@ -24,14 +25,14 @@ namespace PvPChronicle
         private readonly NumericUpDown duration = N(1, 60, 1), lines = N(1, 30, 1), fontSize = N(12, 40, 1);
         private readonly TrackBar opacity = new TrackBar { Minimum = 30, Maximum = 100, TickFrequency = 5, AutoSize = false, Height = 36, Width = 190 };
         private readonly Label languageLabel = L(), durationLabel = L(), linesLabel = L(), opacityLabel = L(), opacityValue = L(), fontSizeLabel = L();
-        private readonly Label hint = L(), estimate = L(), versionLabel = L();
-        private readonly Label updateTitle = L(), updateDescription = L(), currentCaption = L(), currentValue = L(), latestCaption = L(), latestValue = L(), updateStatus = L(), releaseCaption = L();
+        private readonly Label hint = L(), estimate = L();
+        private readonly Label updateTitle = L(), updateDescription = L(), currentCaption = L(), currentValue = L(), latestCaption = L(), latestValue = L(), authorCaption = L(), authorValue = L(), repositoryCaption = L(), updateStatus = L(), releaseCaption = L();
+        private readonly LinkLabel repositoryLink = new LinkLabel { AutoSize = true, LinkColor = Color.FromArgb(40, 104, 160), ActiveLinkColor = Color.FromArgb(24, 79, 127), VisitedLinkColor = Color.FromArgb(40, 104, 160), Anchor = AnchorStyles.Left };
         private readonly TextBox releaseNotes = new TextBox();
         private readonly Button checkButton = new Button(), updateButton = new Button(), laterButton = new Button();
         private readonly Label supportHeading = L(), supportDescription = L(), supportOptional = L(), supportUrl = L(), supportSafety = L(), supportStatus = L();
         private readonly Button supportButton = new Button();
         private bool loading = true;
-        private int hoveredTabIndex = -1;
         private string updateMessageKey = "NotChecked";
         private object[] updateMessageArgs = new object[0];
 
@@ -43,6 +44,7 @@ namespace PvPChronicle
 
         public SettingsControl(PluginSettings value)
         {
+            tabs = new PluginTabs(supportTab);
             settings = value; Dock = DockStyle.Fill; BackColor = Color.FromArgb(244, 247, 251); Padding = new Padding(14);
             language.Items.AddRange(new object[] { "English", "日本語", "简体中文", "한국어" }); language.SelectedIndex = LanguageIndex(settings.Language);
             enabled.Checked = settings.OverlayEnabled; locked.Checked = settings.Locked; preview.Checked = settings.Preview;
@@ -61,8 +63,7 @@ namespace PvPChronicle
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, BackColor = BackColor };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.Controls.Add(header, 0, 0); root.Controls.Add(tabs, 0, 1); Controls.Add(root);
-            versionLabel.Text = "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3); versionLabel.Font = new Font("Segoe UI", 8f); versionLabel.ForeColor = Color.FromArgb(113, 126, 146); versionLabel.BackColor = Color.Transparent;
-            Controls.Add(versionLabel); PositionVersionLabel(); WireEvents(); ApplyLanguage(); loading = false;
+            WireEvents(); ApplyLanguage(); loading = false;
         }
 
         private Control BuildHeader()
@@ -76,10 +77,8 @@ namespace PvPChronicle
 
         private void ConfigureTabs()
         {
-            tabs.Dock = DockStyle.Fill; tabs.DrawMode = TabDrawMode.OwnerDrawFixed; tabs.Padding = new Point(18, 6); tabs.ItemSize = new Size(110, 32); tabs.SizeMode = TabSizeMode.Fixed;
             settingsTab.BackColor = updateTab.BackColor = Color.White; supportTab.BackColor = Color.FromArgb(255, 249, 239);
             settingsTab.Padding = updateTab.Padding = supportTab.Padding = new Padding(4);
-            tabs.DrawItem += DrawTab; tabs.MouseMove += TabsMouseMove; tabs.MouseLeave += delegate { hoveredTabIndex = -1; tabs.Invalidate(); };
         }
 
         private Control BuildSettingsLayout()
@@ -101,19 +100,21 @@ namespace PvPChronicle
         private Control BuildUpdateLayout()
         {
             var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, AutoScroll = true };
-            var layout = new TableLayoutPanel { Dock = DockStyle.Top, Height = 620, MinimumSize = new Size(640, 620), ColumnCount = 2, RowCount = 9, Padding = new Padding(24), BackColor = Color.White };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Top, Height = 620, MinimumSize = new Size(640, 620), ColumnCount = 2, RowCount = 11, Padding = new Padding(24), BackColor = Color.White };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 330)); layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            foreach (var h in new[] { 44, 48, 42, 36, 36, 58, 30, 120, 58 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
+            foreach (var h in new[] { 38, 46, 38, 30, 30, 30, 30, 54, 28, 120, 58 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
             updateTitle.AutoSize = false; updateTitle.Dock = DockStyle.Fill; updateTitle.ForeColor = Color.FromArgb(34, 44, 61); Wide(layout, updateTitle, 0);
             updateDescription.AutoSize = false; updateDescription.Dock = DockStyle.Fill; updateDescription.ForeColor = Color.FromArgb(73, 96, 128); Wide(layout, updateDescription, 1);
             layout.Controls.Add(checkUpdates, 0, 2); Secondary(checkButton); checkButton.Width = 150; checkButton.Height = 30; layout.Controls.Add(checkButton, 1, 2);
             layout.Controls.Add(currentCaption, 0, 3); currentValue.Text = Assembly.GetExecutingAssembly().GetName().Version.ToString(3); layout.Controls.Add(currentValue, 1, 3);
             layout.Controls.Add(latestCaption, 0, 4); latestValue.Text = "—"; layout.Controls.Add(latestValue, 1, 4);
-            updateStatus.AutoSize = false; updateStatus.Dock = DockStyle.Fill; updateStatus.ForeColor = Color.FromArgb(73, 96, 128); Wide(layout, updateStatus, 5);
-            Wide(layout, releaseCaption, 6); releaseNotes.Multiline = true; releaseNotes.ReadOnly = true; releaseNotes.ScrollBars = ScrollBars.Vertical; releaseNotes.Dock = DockStyle.Fill; releaseNotes.BackColor = Color.FromArgb(250, 251, 252); layout.Controls.Add(releaseNotes, 0, 7); layout.SetColumnSpan(releaseNotes, 2);
+            layout.Controls.Add(authorCaption, 0, 5); authorValue.Text = UpdateConfiguration.RepositoryOwner; layout.Controls.Add(authorValue, 1, 5);
+            layout.Controls.Add(repositoryCaption, 0, 6); layout.Controls.Add(repositoryLink, 1, 6);
+            updateStatus.AutoSize = false; updateStatus.Dock = DockStyle.Fill; updateStatus.ForeColor = Color.FromArgb(73, 96, 128); Wide(layout, updateStatus, 7);
+            Wide(layout, releaseCaption, 8); releaseNotes.Multiline = true; releaseNotes.ReadOnly = true; releaseNotes.ScrollBars = ScrollBars.Vertical; releaseNotes.Dock = DockStyle.Fill; releaseNotes.BackColor = Color.FromArgb(250, 251, 252); layout.Controls.Add(releaseNotes, 0, 9); layout.SetColumnSpan(releaseNotes, 2);
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = Padding.Empty };
             Primary(updateButton); updateButton.Width = 250; updateButton.Height = 40; Secondary(laterButton); laterButton.Width = 110; laterButton.Height = 40; updateButton.Enabled = laterButton.Enabled = false;
-            buttons.Controls.Add(updateButton); buttons.Controls.Add(laterButton); layout.Controls.Add(buttons, 0, 8); layout.SetColumnSpan(buttons, 2); panel.Controls.Add(layout); return panel;
+            buttons.Controls.Add(updateButton); buttons.Controls.Add(laterButton); layout.Controls.Add(buttons, 0, 10); layout.SetColumnSpan(buttons, 2); panel.Controls.Add(layout); return panel;
         }
 
         private Control BuildSupportLayout()
@@ -135,6 +136,7 @@ namespace PvPChronicle
             recordAssists.CheckedChanged += Changed;
             opacity.ValueChanged += delegate { opacityValue.Text = opacity.Value + "%"; Changed(this, EventArgs.Empty); }; fontSize.ValueChanged += Changed; checkUpdates.CheckedChanged += Changed;
             checkButton.Click += delegate { CheckUpdatesRequested?.Invoke(this, EventArgs.Empty); }; updateButton.Click += delegate { InstallUpdateRequested?.Invoke(this, EventArgs.Empty); }; laterButton.Click += delegate { LaterRequested?.Invoke(this, EventArgs.Empty); }; supportButton.Click += OpenSupportLink;
+            repositoryLink.LinkClicked += OpenRepositoryLink;
         }
 
         public void ApplyTo(PluginSettings value)
@@ -149,9 +151,11 @@ namespace PvPChronicle
         {
             checkButton.Enabled = true; AvailableRelease = result == null ? null : result.Release; currentValue.Text = current.ToString(3); latestValue.Text = result?.Release?.Version?.ToString() ?? "—";
             releaseNotes.Text = string.IsNullOrWhiteSpace(result?.Release?.Notes) ? T("NoReleaseNotes") : result.Release.Notes; updateButton.Enabled = laterButton.Enabled = result != null && result.Status == UpdateCheckStatus.UpdateAvailable;
-            if (result == null || result.Status == UpdateCheckStatus.Failed || result.Status == UpdateCheckStatus.RepositoryNotConfigured) { updateStatus.ForeColor = Color.FromArgb(176, 65, 56); SetUpdateMessage("CheckFailed"); }
+            if (result == null || result.Status == UpdateCheckStatus.Failed || result.Status == UpdateCheckStatus.RepositoryNotConfigured) { updateStatus.ForeColor = Color.FromArgb(176, 65, 56); SetUpdateMessage("UpdateConnectionFailed"); }
+            else if (result.Status == UpdateCheckStatus.RateLimited) { updateStatus.ForeColor = Color.FromArgb(151, 91, 29); SetUpdateMessage("RateLimited"); }
             else if (result.Status == UpdateCheckStatus.NoStableRelease) { updateStatus.ForeColor = Color.FromArgb(151, 91, 29); SetUpdateMessage("NoRelease"); }
             else if (result.Status == UpdateCheckStatus.UpToDate) { updateStatus.ForeColor = Color.FromArgb(17, 108, 75); SetUpdateMessage("UpToDate", current.ToString(3)); }
+            else if (result.ApiRateLimited) { updateStatus.ForeColor = Color.FromArgb(151, 91, 29); SetUpdateMessage("RateLimitedUpdateAvailable", current.ToString(3), result.Release.Version); }
             else { updateStatus.ForeColor = Color.FromArgb(176, 65, 56); SetUpdateMessage("UpdateAvailable", current.ToString(3), result.Release.Version); }
         }
         internal void SetUpdateText(string key, string detail = null) { updateStatus.ForeColor = key == "Prepared" ? Color.FromArgb(17, 108, 75) : key == "UpdateFailed" ? Color.FromArgb(176, 65, 56) : Color.FromArgb(73, 96, 128); SetUpdateMessage(key, detail == null ? new object[0] : new object[] { detail }); var done = key == "Prepared" || key == "UpdateFailed" || key == "Later"; if (done) updateButton.Enabled = laterButton.Enabled = false; checkButton.Enabled = key != "Preparing"; }
@@ -163,11 +167,11 @@ namespace PvPChronicle
         {
             var family = Localization.FontFamily(CurrentLanguage); ApplyFontFamily(this, family);
             headerTitle.Text = T("PluginTab"); headerTitle.Font = new Font(family, 17f, FontStyle.Bold); headerSubtitle.Text = T("Subtitle"); headerSubtitle.Font = new Font(family, 8.5f);
-            tabs.Font = new Font(family, 9f, FontStyle.Bold); settingsTab.Text = T("Settings"); updateTab.Text = T("Updates"); supportTab.Text = T("Support");
+            tabs.SetLanguageFont(family); settingsTab.Text = T("Settings"); updateTab.Text = T("Updates"); supportTab.Text = T("Support");
             historyTab.Text = T("History"); openHistory.Text = T("OpenHistory"); SetHistory(history);
             recordAssists.Text = T("RecordAssists");
             languageLabel.Text = T("Language"); enabled.Text = T("Enabled"); locked.Text = T("Locked"); preview.Text = T("Preview"); durationLabel.Text = T("Duration"); linesLabel.Text = T("Lines"); opacityLabel.Text = T("Opacity"); fontSizeLabel.Text = T("FontSize"); hint.Text = T("Hint"); estimate.Text = T("EstimateNote");
-            updateTitle.Text = T("UpdateTitle"); updateTitle.Font = new Font(family, 16f, FontStyle.Bold); updateDescription.Text = T("UpdateDescription"); checkUpdates.Text = T("CheckStartup"); checkButton.Text = T("CheckNow"); currentCaption.Text = T("CurrentVersion"); latestCaption.Text = T("LatestVersion"); releaseCaption.Text = T("ReleaseNotes"); updateButton.Text = T("UpdateNow"); laterButton.Text = T("Later");
+            updateTitle.Text = T("UpdateTitle"); updateTitle.Font = new Font(family, 16f, FontStyle.Bold); updateDescription.Text = T("UpdateDescription"); checkUpdates.Text = T("CheckStartup"); checkButton.Text = T("CheckNow"); currentCaption.Text = T("CurrentVersion"); latestCaption.Text = T("LatestVersion"); authorCaption.Text = T("Author"); repositoryCaption.Text = T("GitHub"); repositoryLink.Text = UpdateConfiguration.RepositoryUrl; releaseCaption.Text = T("ReleaseNotes"); updateButton.Text = T("UpdateNow"); laterButton.Text = T("Later");
             supportHeading.Text = T("SupportHeading"); supportHeading.Font = new Font(family, 18f, FontStyle.Bold); supportDescription.Text = T("SupportDescription"); supportOptional.Text = T("SupportBody"); supportOptional.Font = new Font(family, 9.5f, FontStyle.Bold); supportButton.Text = T("SupportButton"); supportSafety.Text = T("SupportSafety");
             if (string.IsNullOrWhiteSpace(releaseNotes.Text)) releaseNotes.Text = T("NoReleaseNotes"); RefreshUpdateMessage(); tabs.Invalidate(); Invalidate(true);
         }
@@ -185,18 +189,7 @@ namespace PvPChronicle
         private string T(string key, params object[] args) => Localization.Get(CurrentLanguage, key, args);
         private string CurrentLanguage => language.SelectedIndex == 1 ? "ja" : language.SelectedIndex == 2 ? "zh-CN" : language.SelectedIndex == 3 ? "ko" : "en";
         private void OpenSupportLink(object sender, EventArgs e) { string error; if (TryOpenSupportLink(Process.Start, out error)) { supportStatus.ForeColor = Color.FromArgb(17, 108, 75); supportStatus.Text = T("BrowserOpened"); } else { supportStatus.ForeColor = Color.FromArgb(176, 65, 56); supportStatus.Text = T("LinkFailed", error); } }
-        private void TabsMouseMove(object sender, MouseEventArgs e) { var next = -1; for (var i = 0; i < tabs.TabCount; i++) if (tabs.GetTabRect(i).Contains(e.Location)) { next = i; break; } if (next == hoveredTabIndex) return; hoveredTabIndex = next; tabs.Invalidate(); }
-        private void DrawTab(object sender, DrawItemEventArgs e)
-        {
-            var selected = e.Index == tabs.SelectedIndex; var hovered = e.Index == hoveredTabIndex; var support = tabs.TabPages[e.Index] == supportTab;
-            var background = selected ? Color.White : hovered ? Color.FromArgb(247, 248, 250) : Color.FromArgb(240, 242, 245); var foreground = Color.FromArgb(42, 53, 69);
-            if (support) { background = selected ? Color.FromArgb(255, 245, 226) : hovered ? Color.FromArgb(255, 238, 207) : Color.FromArgb(250, 231, 197); foreground = selected ? Color.FromArgb(137, 62, 7) : hovered ? Color.FromArgb(157, 72, 8) : Color.FromArgb(174, 84, 13); }
-            using (var brush = new SolidBrush(background)) e.Graphics.FillRectangle(brush, e.Bounds); TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, tabs.Font, e.Bounds, foreground, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
-            if (support && selected) using (var pen = new Pen(Color.FromArgb(213, 137, 32), 2f)) e.Graphics.DrawLine(pen, e.Bounds.Left + 4, e.Bounds.Bottom - 2, e.Bounds.Right - 4, e.Bounds.Bottom - 2);
-        }
-
-        protected override void OnResize(EventArgs e) { base.OnResize(e); PositionVersionLabel(); }
-        private void PositionVersionLabel() { versionLabel.Location = new Point(Math.Max(8, ClientSize.Width - versionLabel.PreferredWidth - 12), Math.Max(8, ClientSize.Height - versionLabel.PreferredHeight - 8)); versionLabel.BringToFront(); }
+        private void OpenRepositoryLink(object sender, LinkLabelLinkClickedEventArgs e) { try { Process.Start(new ProcessStartInfo(UpdateConfiguration.RepositoryUrl) { UseShellExecute = true }); } catch (Exception ex) { updateStatus.ForeColor = Color.FromArgb(176, 65, 56); updateStatus.Text = T("LinkFailed", ex.GetBaseException().Message); } }
         private static void Wide(TableLayoutPanel p, Control c, int row) { p.Controls.Add(c, 0, row); p.SetColumnSpan(c, 2); }
         private static Control SliderPanel(TrackBar s, Label v) { var p = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = Padding.Empty }; v.Margin = new Padding(8, 8, 0, 0); p.Controls.Add(s); p.Controls.Add(v); return p; }
         private static void ApplyFontFamily(Control root, string family) { root.Font = new Font(family, root.Font.Size, root.Font.Style); foreach (Control child in root.Controls) ApplyFontFamily(child, family); }

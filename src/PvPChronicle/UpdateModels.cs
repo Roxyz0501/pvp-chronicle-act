@@ -18,13 +18,20 @@ namespace PvPChronicle
         public List<ReleaseAsset> Assets { get; set; } = new List<ReleaseAsset>();
     }
 
-    internal enum UpdateCheckStatus { RepositoryNotConfigured, UpToDate, UpdateAvailable, NoStableRelease, Failed }
+    internal enum UpdateCheckStatus { RepositoryNotConfigured, UpToDate, UpdateAvailable, NoStableRelease, RateLimited, Failed }
 
     internal sealed class UpdateCheckResult
     {
         public UpdateCheckStatus Status { get; set; }
         public ReleaseInfo Release { get; set; }
         public string Error { get; set; }
+        public bool ApiRateLimited { get; set; }
+    }
+
+    internal sealed class ReleaseApiResponse
+    {
+        public int StatusCode { get; set; }
+        public string Body { get; set; }
     }
 
     internal sealed class PreparedUpdate
@@ -32,6 +39,7 @@ namespace PvPChronicle
         public string StagedDllPath { get; set; }
         public string StagedUpdaterPath { get; set; }
         public string DllSha256 { get; set; }
+        public string UpdaterSha256 { get; set; }
         public ReleaseInfo Release { get; set; }
     }
 }
